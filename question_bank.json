@@ -1,0 +1,727 @@
+{
+  "questions": [
+    {
+      "id": "f_001",
+      "tier": "filter",
+      "cluster": "cell_theory",
+      "topic": "Cell Theory",
+      "question_text": "Who named microscopic structures \"cells\" in 1665 after observing cork?",
+      "correct_answer": "Robert Hooke",
+      "accepted_variants": ["Robert Hooke", "Hooke"],
+      "key_terms": [],
+      "min_words": 1,
+      "misconceptions": [],
+      "answer_explanation": "",
+      "fallback_hint": ""
+    },
+    {
+      "id": "f_002",
+      "tier": "filter",
+      "cluster": "cell_theory",
+      "topic": "Cell Theory",
+      "question_text": "Which scientist stated in 1855 that all new cells arise from pre-existing cells?",
+      "correct_answer": "Rudolf Virchow",
+      "accepted_variants": ["Rudolf Virchow", "Virchow", "Rudolf Ludwig Karl Virchow"],
+      "key_terms": [],
+      "min_words": 1,
+      "misconceptions": [],
+      "answer_explanation": "",
+      "fallback_hint": ""
+    },
+    {
+      "id": "s_cell_theory_L1",
+      "tier": "socratic",
+      "cluster": "cell_theory",
+      "topic": "Cell Theory",
+      "level": 1,
+      "question_text": "How does Virchow's postulate about cellular origins explain biological tissue enlargement and wound recovery?",
+      "correct_answer": "Tissues expand and heal when pre-existing living cells undergo division to form replacement cells.",
+      "accepted_variants": [
+        "Growth and repair occur because pre-existing functional cells undergo division to generate new cells.",
+        "Organisms heal injuries and grow when pre-existing mature cells undergo division to produce daughter cells.",
+        "New cells required for tissue expansion and healing are produced when pre-existing cells undergo division."
+      ],
+      "key_terms": ["division", "pre-existing"],
+      "min_words": 5,
+      "misconceptions": [
+        {
+          "wrong_answer": "Wounds heal because damaged tissue cells absorb surrounding nutrients and swell in size until the empty space in the tissue is filled.",
+          "error_type": "logic_error",
+          "explanation": "Recovery and growth rely on cell division from pre-existing cells (hyperplasia), not on individual cells enlarging (hypertrophy)."
+        },
+        {
+          "wrong_answer": "New cells form spontaneously from an acellular matrix or fluid at the wound site to rebuild the missing tissue.",
+          "error_type": "logic_error",
+          "explanation": "All new cells arise from division of pre-existing living cells (Virchow's postulate). Extracellular fluid cannot coalesce into structured tissue."
+        }
+      ],
+      "answer_explanation": "Tissues grow and heal because pre-existing cells divide to produce new cells.",
+      "fallback_hint": "What process must living cells undergo to generate new daughter cells during healing?"
+    },
+    {
+      "id": "s_cell_theory_L2",
+      "tier": "socratic",
+      "cluster": "cell_theory",
+      "topic": "Cell Theory",
+      "level": 2,
+      "question_text": "Why are individual intracellular structures not considered the fundamental independent units of living organisms?",
+      "correct_answer": "Isolated organelles cannot maintain independent metabolism or self-sustained survival outside of intact cells.",
+      "accepted_variants": [
+        "Individual organelles lack the capacity for independent metabolism and replication when separated from cells.",
+        "Sub-cellular organelles cannot carry out self-sustaining metabolism or reproduce on their own outside cells.",
+        "Isolated organelles fail to perform independent metabolism necessary to sustain life without cellular support."
+      ],
+      "key_terms": ["organelles", "metabolism"],
+      "min_words": 5,
+      "misconceptions": [
+        {
+          "wrong_answer": "Mitochondria and chloroplasts are independent living organisms inside cells because they have their own DNA, ribosomes, and double membranes.",
+          "error_type": "logic_error",
+          "explanation": "Organelles are dependent components of the host cell. Endosymbiotic origins do not make them autonomous — they cannot maintain independent metabolism or self-sustained survival outside the cell."
+        },
+        {
+          "wrong_answer": "Mitochondria are considered alive because they perform a life process — energy production — and anything that performs a life process must itself be alive.",
+          "error_type": "logic_error",
+          "explanation": "Life requires integrated, self-sustaining metabolism across all processes. No single organelle performs all of them. Mitochondria make ATP but cannot replicate, regulate, or maintain homeostasis on their own."
+        }
+      ],
+      "answer_explanation": "Organelles cannot carry out all life processes on their own. The cell is the smallest unit that can.",
+      "fallback_hint": "Can isolated mitochondria or lysosomes carry out self-sustaining metabolic processes on their own?"
+    },
+    {
+      "id": "f_003",
+      "tier": "filter",
+      "cluster": "prokaryote_eukaryote",
+      "topic": "Prokaryote vs Eukaryote",
+      "question_text": "In which unenclosed cytoplasmic region is prokaryotic circular genetic material concentrated?",
+      "correct_answer": "Nucleoid region",
+      "accepted_variants": ["Nucleoid region", "Nucleoid", "Nucleoid area"],
+      "key_terms": [],
+      "min_words": 1,
+      "misconceptions": [],
+      "answer_explanation": "",
+      "fallback_hint": ""
+    },
+    {
+      "id": "f_004",
+      "tier": "filter",
+      "cluster": "prokaryote_eukaryote",
+      "topic": "Prokaryote vs Eukaryote",
+      "question_text": "What double-membrane barrier encloses linear genetic material in eukaryotic cells?",
+      "correct_answer": "Nuclear envelope",
+      "accepted_variants": ["Nuclear envelope", "Nuclear membrane"],
+      "key_terms": [],
+      "min_words": 1,
+      "misconceptions": [],
+      "answer_explanation": "",
+      "fallback_hint": ""
+    },
+    {
+      "id": "s_prokaryote_eukaryote_L1",
+      "tier": "socratic",
+      "cluster": "prokaryote_eukaryote",
+      "topic": "Prokaryote vs Eukaryote",
+      "level": 1,
+      "question_text": "How does the structural absence of a membrane around bacterial DNA affect the timing of protein synthesis?",
+      "correct_answer": "Without a nuclear membrane, cytosolic ribosomes initiate translation on mRNA while transcription is still occurring.",
+      "accepted_variants": [
+        "Lacking a nuclear envelope allows ribosomes to begin translation on the mRNA strand during active transcription.",
+        "In the absence of a nuclear barrier, ribosomes engage in concurrent translation while mRNA transcription proceeds.",
+        "Cytosolic ribosomes can perform simultaneous translation on nascent mRNA during ongoing gene transcription."
+      ],
+      "key_terms": ["translation", "transcription"],
+      "min_words": 5,
+      "misconceptions": [
+        {
+          "wrong_answer": "Bacterial ribosomes can translate DNA directly while RNA polymerase is unwinding it, skipping the need for an mRNA intermediate.",
+          "error_type": "logic_error",
+          "explanation": "Ribosomes strictly read mRNA, not DNA. Transcription into mRNA must occur first, even though translation begins on the nascent mRNA strand while transcription is still running."
+        },
+        {
+          "wrong_answer": "RNA polymerase and the ribosome cannot work on the same mRNA molecule at the same time because they would physically collide on the strand.",
+          "error_type": "logic_error",
+          "explanation": "Co-transcriptional translation works because the ribosome trails behind RNA polymerase on the nascent mRNA. They occupy different positions on the same strand; synthesis and translation are coordinated, not colliding."
+        }
+      ],
+      "answer_explanation": "Without a nuclear membrane, ribosomes can attach to mRNA and start translating before transcription finishes.",
+      "fallback_hint": "Can protein translation begin on an mRNA strand before RNA polymerase finishes transcribing it?"
+    },
+    {
+      "id": "s_prokaryote_eukaryote_L2",
+      "tier": "socratic",
+      "cluster": "prokaryote_eukaryote",
+      "topic": "Prokaryote vs Eukaryote",
+      "level": 2,
+      "question_text": "Why does internal membrane division enable eukaryotic cells to attain much greater volume than bacterial cells?",
+      "correct_answer": "Membrane compartmentalization concentrates reactants in organelle microenvironments, overcoming the rate limits of simple cytosolic diffusion.",
+      "accepted_variants": [
+        "Organelle compartmentalization concentrates enzymes internally, preventing the transport delays caused by slow cytosolic diffusion across large distances.",
+        "Internal compartmentalization creates efficient microenvironments that overcome the physical limitations of simple molecular diffusion in large volumes.",
+        "Structural compartmentalization isolates biochemical pathways locally, allowing metabolic efficiency that is impossible through unassisted cellular diffusion alone."
+      ],
+      "key_terms": ["compartmentalization", "diffusion"],
+      "min_words": 5,
+      "misconceptions": [
+        {
+          "wrong_answer": "Eukaryotic cells can grow larger because internal organelle membranes act as structural scaffolding that physically holds up the larger cell and prevents it from collapsing.",
+          "error_type": "logic_error",
+          "explanation": "Membrane compartmentalization enables larger volume by overcoming diffusion limits and localizing reactions, not by mechanical support. Structural integrity comes from the cytoskeleton and cell wall."
+        },
+        {
+          "wrong_answer": "Larger eukaryotic cells simply produce many more total molecules throughout the cytosol, which naturally speeds up reactions to keep up with the increased volume.",
+          "error_type": "logic_error",
+          "explanation": "Reaction rates depend on local concentration, not total molecule count. As volume increases, uncompartmentalized reactants dilute and diffusion-limited collision rates slow down."
+        }
+      ],
+      "answer_explanation": "Internal membranes create compartments, so different reactions can happen at the same time without interfering with each other.",
+      "fallback_hint": "How do internal organelle boundaries prevent molecular transport from becoming bottlenecked by slow diffusion over large cell dimensions?"
+    },
+    {
+      "id": "f_005",
+      "tier": "filter",
+      "cluster": "organelles",
+      "topic": "Organelle Function",
+      "question_text": "Which organelle converts glucose into ATP through cellular respiration?",
+      "correct_answer": "Mitochondria",
+      "accepted_variants": ["Mitochondria", "Mitochondrion"],
+      "key_terms": [],
+      "min_words": 1,
+      "misconceptions": [],
+      "answer_explanation": "",
+      "fallback_hint": ""
+    },
+    {
+      "id": "f_006",
+      "tier": "filter",
+      "cluster": "organelles",
+      "topic": "Organelle Function",
+      "question_text": "Which organelle contains hydrolytic enzymes responsible for breaking down cellular waste and damaged structures?",
+      "correct_answer": "Lysosomes",
+      "accepted_variants": ["Lysosomes", "Lysosome"],
+      "key_terms": [],
+      "min_words": 1,
+      "misconceptions": [],
+      "answer_explanation": "",
+      "fallback_hint": ""
+    },
+    {
+      "id": "s_organelles_L1",
+      "tier": "socratic",
+      "cluster": "organelles",
+      "topic": "Organelle Function",
+      "level": 1,
+      "question_text": "How do ribosomes on the rough ER direct proteins to different final destinations than free ribosomes?",
+      "correct_answer": "Ribosomes on the rough ER synthesize proteins into the lumen for membrane placement or secretion, while free ribosomes synthesize proteins that remain in the cytosol.",
+      "accepted_variants": [
+        "Ribosomes attached to the rough ER process proteins destined for secretion or membranes, whereas free ribosomes produce proteins used in the cytosol.",
+        "The rough ER produces proteins for cell secretion or organelles, while cytosolic ribosomes synthesize proteins needed within the cytosol.",
+        "Proteins translated at the rough ER undergo processing for secretion or membrane insertion, while free ribosomes make proteins for the cytosol.",
+        "Free ribosomes generate proteins for the cytosol, whereas rough ER ribosomes manufacture proteins designated for membrane transport or secretion."
+      ],
+      "key_terms": ["secretion", "cytosol"],
+      "min_words": 5,
+      "misconceptions": [
+        {
+          "wrong_answer": "Ribosomes on the rough ER are structurally different from free ribosomes, with specialized subunits permanently assigned to synthesize ER-bound proteins.",
+          "error_type": "logic_error",
+          "explanation": "Ribosomes are structurally identical and interchangeable. Their location is determined by the signal sequence on the nascent polypeptide, not by structural specialization."
+        },
+        {
+          "wrong_answer": "The ER signal sequence acts as a zip code that directs the ribosome to the ER after protein translation is completely finished.",
+          "error_type": "logic_error",
+          "explanation": "Targeting is co-translational. SRP binds the signal peptide mid-translation and pauses synthesis until the ribosome docks at the ER membrane — not after translation finishes."
+        }
+      ],
+      "answer_explanation": "Rough ER ribosomes send proteins into the lumen for secretion or membranes; free ribosomes keep proteins in the cytosol.",
+      "fallback_hint": "Where do proteins translated inside the rough ER lumen travel compared to those synthesized by free ribosomes?"
+    },
+    {
+      "id": "s_organelles_L2",
+      "tier": "socratic",
+      "cluster": "organelles",
+      "topic": "Organelle Function",
+      "level": 2,
+      "question_text": "Why must hydrolytic enzymes be isolated within lysosomes rather than remaining free in the cytoplasm?",
+      "correct_answer": "Isolating hydrolytic enzymes inside lysosomes maintains an acidic environment and prevents them from digesting proteins in the cytoplasm.",
+      "accepted_variants": [
+        "Lysosomes maintain an acidic pH required by their enzymes and prevent them from digesting the cytoplasm.",
+        "The acidic environment inside lysosomes is needed for enzyme function, and isolation prevents the enzymes from digesting other cell contents.",
+        "Hydrolytic enzymes need an acidic pH, and keeping them enclosed stops them from digesting proteins in the cytoplasm.",
+        "Enclosing the enzymes keeps them in an acidic environment and prevents them from digesting cytoplasmic components."
+      ],
+      "key_terms": ["acidic", "digest"],
+      "min_words": 5,
+      "misconceptions": [
+        {
+          "wrong_answer": "Lysosomes contain their own internal acidic fluid, so if a lysosome ruptures the released acid will lower the whole cytoplasm's pH and destroy the cell.",
+          "error_type": "logic_error",
+          "explanation": "The cytoplasm has high buffering capacity and vastly larger volume than a single lysosome, so local proton release cannot significantly shift cytosolic pH."
+        },
+        {
+          "wrong_answer": "Hydrolytic enzymes are kept inside lysosomes mainly to stop them from floating around and colliding with cytosolic organelles, independent of pH.",
+          "error_type": "logic_error",
+          "explanation": "Sequestration works together with pH regulation. The lysosome provides the acidic microenvironment the enzymes require, not just a physical barrier."
+        }
+      ],
+      "answer_explanation": "The acidic interior of the lysosome is required for enzyme function, and enclosing the enzymes prevents them from digesting the cytoplasm.",
+      "fallback_hint": "What would happen to cytosolic proteins if digestive enzymes were released into an environment without an acidic pH boundary?"
+    },
+    {
+      "id": "f_007",
+      "tier": "filter",
+      "cluster": "dna_replication",
+      "topic": "DNA Replication Mechanisms",
+      "question_text": "Which enzyme unwinds the DNA double helix during replication by breaking hydrogen bonds between nitrogenous bases?",
+      "correct_answer": "Helicase",
+      "accepted_variants": ["Helicase", "DNA helicase"],
+      "key_terms": [],
+      "min_words": 1,
+      "misconceptions": [],
+      "answer_explanation": "",
+      "fallback_hint": ""
+    },
+    {
+      "id": "f_008",
+      "tier": "filter",
+      "cluster": "dna_replication",
+      "topic": "DNA Replication Mechanisms",
+      "question_text": "Which enzyme prevents topological tangling and relieves torsional strain ahead of the replication fork?",
+      "correct_answer": "Topoisomerase",
+      "accepted_variants": ["Topoisomerase", "DNA topoisomerase"],
+      "key_terms": [],
+      "min_words": 1,
+      "misconceptions": [],
+      "answer_explanation": "",
+      "fallback_hint": ""
+    },
+    {
+      "id": "s_dna_replication_L1",
+      "tier": "socratic",
+      "cluster": "dna_replication",
+      "topic": "DNA Replication Mechanisms",
+      "level": 1,
+      "question_text": "How does DNA polymerase synthesize new strands when template strands run in opposite antiparallel directions?",
+      "correct_answer": "DNA polymerase builds the leading strand continuously toward the replication fork, while assembling the lagging strand discontinuously in short fragments.",
+      "accepted_variants": [
+        "On the leading strand synthesis is continuous, whereas the lagging strand is assembled discontinuously as short fragments.",
+        "DNA polymerase synthesizes the leading strand continuously and the lagging strand discontinuously in short fragments.",
+        "Continuous synthesis occurs on the leading strand, while the lagging strand is built in short fragments away from the fork.",
+        "The leading strand is synthesized continuously, but the lagging strand requires discontinuous creation of short fragments."
+      ],
+      "key_terms": ["leading", "lagging", "fragments"],
+      "min_words": 5,
+      "misconceptions": [
+        {
+          "wrong_answer": "DNA polymerase synthesizes the lagging strand in the 3' to 5' direction so both daughter strands can grow continuously as the fork opens.",
+          "error_type": "logic_error",
+          "explanation": "All DNA polymerases synthesize strictly 5' to 3', adding nucleotides only to the 3'-OH end. The lagging strand cannot grow continuously in the fork direction."
+        },
+        {
+          "wrong_answer": "Because the leading strand grows toward the fork and the lagging strand grows away from it, the two strands are synthesized in physically opposite directions in the cell.",
+          "error_type": "logic_error",
+          "explanation": "Both polymerases are part of one replisome moving forward with the fork. The lagging-strand template loops so synthesis is discontinuous in time, not reversed in physical direction."
+        }
+      ],
+      "answer_explanation": "The leading strand is made continuously toward the fork; the lagging strand is made in short fragments as the fork opens.",
+      "fallback_hint": "In which direction relative to the replication fork is DNA polymerase able to continuously synthesize new nucleotides?"
+    },
+    {
+      "id": "s_dna_replication_L2",
+      "tier": "socratic",
+      "cluster": "dna_replication",
+      "topic": "DNA Replication Mechanisms",
+      "level": 2,
+      "question_text": "Why is DNA replication described as semi-conservative, and how does this preserve genetic information across generations?",
+      "correct_answer": "Each newly formed double helix retains one original parental strand that serves as an exact template to guide complementary assembly of the new strand.",
+      "accepted_variants": [
+        "Semi-conservative replication preserves one original parental strand in each daughter molecule, using it as a template for accurate complementary pairing.",
+        "Every daughter double helix keeps one parental strand as a structural template to direct synthesis of the complementary new strand.",
+        "Conserving one parental strand provides an accurate template for building the opposite strand during division.",
+        "Each new DNA helix holds one parental strand, which acts as a template for synthesizing the matching new strand."
+      ],
+      "key_terms": ["parental", "strand", "template"],
+      "min_words": 5,
+      "misconceptions": [
+        {
+          "wrong_answer": "DNA replication is semi-conservative because half of the original double helices are kept unchanged while the other half are completely new.",
+          "error_type": "logic_error",
+          "explanation": "Semi-conservative replication operates at the level of single strands. Every daughter double helix contains one intact parental strand paired with one newly synthesized strand — this is the conservative model confusion."
+        },
+        {
+          "wrong_answer": "In semi-conservative replication, parental strands break into small fragments that mix randomly with new fragments, making each strand a patchwork of old and new DNA.",
+          "error_type": "logic_error",
+          "explanation": "Parental strands remain continuous and intact throughout replication. They serve as uninterrupted linear templates for new complementary strand synthesis — this is the dispersive model confusion."
+        }
+      ],
+      "answer_explanation": "Each daughter double helix keeps one parental strand as a template, which is what makes replication semi-conservative.",
+      "fallback_hint": "What proportion of the original double helix is preserved in each newly formed daughter molecule?"
+    },
+{
+  "id": "f_009",
+  "tier": "filter",
+  "cluster": "cell_cycle",
+  "topic": "Cell Cycle Regulation",
+  "question_text": "Which sub-phase of interphase is dedicated to copying nuclear DNA?",
+  "correct_answer": "S phase",
+  "accepted_variants": ["S phase", "Synthesis phase", "S-phase"],
+  "key_terms": [],
+  "min_words": 1,
+  "misconceptions": [],
+  "answer_explanation": "",
+  "fallback_hint": ""
+},
+{
+  "id": "f_010",
+  "tier": "filter",
+  "cluster": "cell_cycle",
+  "topic": "Cell Cycle Regulation",
+  "question_text": "Which tumor suppressor protein detects genetic damage and pauses cell division?",
+  "correct_answer": "p53",
+  "accepted_variants": ["p53", "p53 protein", "Protein p53"],
+  "key_terms": [],
+  "min_words": 1,
+  "misconceptions": [],
+  "answer_explanation": "",
+  "fallback_hint": ""
+},
+{
+  "id": "s_cell_cycle_L1",
+  "tier": "socratic",
+  "cluster": "cell_cycle",
+  "topic": "Cell Cycle Regulation",
+  "level": 1,
+  "question_text": "How does the G2 checkpoint prevent damaged or incomplete genetic material from passing into daughter cells?",
+  "correct_answer": "The G2 checkpoint pauses the cell cycle to verify that DNA replication is complete before entering mitosis.",
+  "accepted_variants": [
+    "The G2 checkpoint halts cell division to ensure that DNA replication is finished prior to mitosis.",
+    "By delaying progression, the G2 checkpoint confirms full DNA replication before a cell proceeds into mitosis.",
+    "The G2 checkpoint stops division until DNA replication has occurred cleanly before starting mitosis."
+  ],
+  "key_terms": ["replication", "mitosis"],
+  "min_words": 5,
+  "misconceptions": [
+    {
+      "wrong_answer": "The G2 checkpoint is basically a repair crew that actively fixes any broken or missing DNA strands before letting the cell divide.",
+      "error_type": "logic_error",
+      "explanation": "Checkpoints are signalling pauses, not repair agents. Separate enzymatic pathways repair DNA; the checkpoint only halts the cycle until repair is done."
+    },
+    {
+      "wrong_answer": "The G2 checkpoint checks to make sure all the chromosomes are successfully attached to spindle fibers so they can be pulled apart evenly.",
+      "error_type": "logic_error",
+      "explanation": "G2 verifies DNA replication completeness before mitosis. Spindle attachment is monitored later by the spindle assembly checkpoint (M checkpoint) during metaphase."
+    },
+    {
+      "wrong_answer": "If the DNA isn't fully copied by the end of G2, the cell just immediately destroys itself because it can't handle errors.",
+      "error_type": "logic_error",
+      "explanation": "The G2 checkpoint halts the cycle temporarily to allow replication to finish. Immediate apoptosis is not the first response — pause-and-repair precedes any destructive outcome."
+    }
+  ],
+  "answer_explanation": "The G2 checkpoint pauses the cycle until DNA replication is complete, preventing incomplete genetic material from entering mitosis.",
+  "fallback_hint": "Which phase of division is delayed until chromosome copying is validated?"
+},
+{
+  "id": "s_cell_cycle_L2",
+  "tier": "socratic",
+  "cluster": "cell_cycle",
+  "topic": "Cell Cycle Regulation",
+  "level": 2,
+  "question_text": "Why does premature entry into anaphase cause aneuploidy when chromosome alignment is incomplete?",
+  "correct_answer": "Sister chromatids separate before all kinetochores attach to spindle fibers, resulting in unequal chromosome distribution.",
+  "accepted_variants": [
+    "Unattached kinetochores permit sister chromatids to split without spindle fiber connections, leading to uneven chromosome distribution.",
+    "Sister chromatids pull apart prior to attaching to spindle microfilaments, producing an abnormal chromosome distribution.",
+    "Sister chromatids separate prematurely without connecting to spindle fibers, causing unequal chromosome distribution."
+  ],
+  "key_terms": ["chromatids", "spindle", "distribution"],
+  "min_words": 5,
+  "misconceptions": [
+    {
+      "wrong_answer": "If chromosomes aren't lined up on the metaphase plate, they just get left behind in the middle and disintegrate, which is why the daughter cells end up with the wrong number of chromosomes.",
+      "error_type": "logic_error",
+      "explanation": "Unaligned or improperly attached chromosomes are subjected to active, unequal mechanical pulling forces from spindle microtubules — not targeted for localized degradation. Missegregation, not disintegration, produces aneuploidy."
+    },
+    {
+      "wrong_answer": "Chromosomes have to line up neatly in the middle because that physical row formation is what mechanically trips the switch to pull the sister chromatids apart.",
+      "error_type": "logic_error",
+      "explanation": "Anaphase onset is regulated by a biochemical cascade (spindle assembly checkpoint and APC/C activation) responding to kinetochore tension and attachment — not by a mechanical trigger from visual alignment."
+    }
+  ],
+  "answer_explanation": "Anaphase must wait for all kinetochores to attach. If chromatids separate early, chromosomes distribute unequally to daughter cells.",
+  "fallback_hint": "What cellular fibers must attach to every kinetochore before sister chromatids can safely pull apart?"
+},
+{
+  "id": "f_011",
+  "tier": "filter",
+  "cluster": "biomolecules",
+  "topic": "Biomolecule Structure and Function",
+  "question_text": "Which class of hydrophobic biomolecules forms the structural foundation of biological membranes?",
+  "correct_answer": "Phospholipids",
+  "accepted_variants": ["Phospholipids", "Phospholipid"],
+  "key_terms": [],
+  "min_words": 1,
+  "misconceptions": [],
+  "answer_explanation": "",
+  "fallback_hint": ""
+},
+{
+  "id": "f_012",
+  "tier": "filter",
+  "cluster": "biomolecules",
+  "topic": "Biomolecule Structure and Function",
+  "question_text": "Which biomolecule monomer consists of a nitrogenous base, a five-carbon sugar, and a phosphate group?",
+  "correct_answer": "Nucleotide",
+  "accepted_variants": ["Nucleotide", "Nucleotides"],
+  "key_terms": [],
+  "min_words": 1,
+  "misconceptions": [],
+  "answer_explanation": "",
+  "fallback_hint": ""
+},
+{
+  "id": "s_biomolecules_L1",
+  "tier": "socratic",
+  "cluster": "biomolecules",
+  "topic": "Biomolecule Structure and Function",
+  "level": 1,
+  "question_text": "How does amphipathic chemical polarity force membrane lipids to spontaneously assemble into a bilayer in an aqueous environment?",
+  "correct_answer": "Hydrophilic heads face outward toward water while hydrophobic tails orient inward away from water.",
+  "accepted_variants": [
+    "Polar heads interact with water on the outside while nonpolar tails hide inside away from water.",
+    "Hydrophilic heads face surrounding water while hydrophobic tails cluster together internally away from water.",
+    "The polar heads align toward water while the nonpolar tails pack together inward away from water."
+  ],
+  "key_terms": ["heads", "tails", "water"],
+  "min_words": 5,
+  "misconceptions": [
+    {
+      "wrong_answer": "The hydrophobic tails of the lipids stick together because they are chemically attracted to each other, like magnets pulling together.",
+      "error_type": "logic_error",
+      "explanation": "Hydrophobic interactions are driven by entropy maximization of surrounding water molecules, not by direct adhesive attraction or bonding between the nonpolar tails."
+    },
+    {
+      "wrong_answer": "The cell uses ATP energy to actively arrange the lipids into a double layer so it can create a sealed container.",
+      "error_type": "logic_error",
+      "explanation": "Membrane self-assembly is spontaneous — driven by the hydrophobic effect and lipid geometry. No direct metabolic energy input is required for bilayer formation."
+    }
+  ],
+  "answer_explanation": "Hydrophilic heads face water on both surfaces; hydrophobic tails pack inward. The hydrophobic effect drives spontaneous bilayer formation.",
+  "fallback_hint": "Which portion of the lipid molecule seeks contact with polar solvent molecules versus avoiding them?"
+},
+{
+  "id": "s_biomolecules_L2",
+  "tier": "socratic",
+  "cluster": "biomolecules",
+  "topic": "Biomolecule Structure and Function",
+  "level": 2,
+  "question_text": "Why do lipids yield significantly more energy per gram upon oxidation than carbohydrates?",
+  "correct_answer": "Lipids contain a higher proportion of reduced hydrocarbon bonds with fewer oxygen atoms than carbohydrates.",
+  "accepted_variants": [
+    "Triglyceride fatty acids possess reduced hydrocarbon bonds containing less oxygen than carbohydrates.",
+    "Lipids consist of reduced hydrocarbon chains that carry less oxygen per atom than carbohydrates.",
+    "Lipids feature reduced hydrocarbon structures with lower oxygen content compared to carbohydrates."
+  ],
+  "key_terms": ["reduced", "hydrocarbon", "oxygen"],
+  "min_words": 5,
+  "misconceptions": [
+    {
+      "wrong_answer": "Fats store more energy per gram simply because they are larger molecules with more total carbon and hydrogen atoms to burn through.",
+      "error_type": "logic_error",
+      "explanation": "Energy yield per gram depends on the oxidation state of carbon — the density of reduced C-H bonds relative to C-O bonds — not on absolute molecular size or total atom count."
+    },
+    {
+      "wrong_answer": "Fat molecules contain special 'high-energy' bonds in their long hydrocarbon tails that snap apart and release extra power compared to carbohydrate bonds.",
+      "error_type": "logic_error",
+      "explanation": "Energy is released through progressive oxidation of carbon via electron transfer to NAD+ and FAD, not through breaking uniquely energized covalent bonds."
+    }
+  ],
+  "answer_explanation": "Lipids are more reduced — fewer C-O bonds, more C-H bonds — so oxidation releases more energy per gram than carbohydrates.",
+  "fallback_hint": "Which elemental component makes sugar molecules already partially oxidized compared to long fatty acid chains?"
+},
+{
+      "id": "f_013",
+      "tier": "filter",
+      "cluster": "enzymes",
+      "topic": "Enzyme Catalysis",
+      "question_text": "What specific region of an enzyme binds substrate molecules to perform catalysis?",
+      "correct_answer": "Active site",
+      "accepted_variants": ["Active site", "Active sites"],
+      "key_terms": [],
+      "min_words": 1,
+      "misconceptions": [],
+      "answer_explanation": "",
+      "fallback_hint": ""
+    },
+    {
+      "id": "f_014",
+      "tier": "filter",
+      "cluster": "enzymes",
+      "topic": "Enzyme Catalysis",
+      "question_text": "What energetic threshold must reactant molecules overcome for a chemical reaction to proceed?",
+      "correct_answer": "Activation energy",
+      "accepted_variants": ["Activation energy", "Activation energy barrier"],
+      "key_terms": [],
+      "min_words": 1,
+      "misconceptions": [],
+      "answer_explanation": "",
+      "fallback_hint": ""
+    },
+    {
+      "id": "s_enzymes_L1",
+      "tier": "socratic",
+      "cluster": "enzymes",
+      "topic": "Enzyme Catalysis",
+      "level": 1,
+      "question_text": "How do enzymes accelerate the rate of metabolic reactions without changing the overall equilibrium constant?",
+      "correct_answer": "Enzymes stabilize transition state intermediates to lower the required activation energy.",
+      "accepted_variants": [
+        "Enzymes lower the activation energy by stabilizing high-energy transition state structures.",
+        "Catalysts lower the activation energy required by binding and stabilizing transition state complexes.",
+        "By stabilizing transition state configurations, enzymes lower the overall activation energy."
+      ],
+      "key_terms": ["activation energy", "transition state"],
+      "min_words": 5,
+      "misconceptions": [
+        {
+          "wrong_answer": "Enzymes can push a reaction to produce more product than normal by shifting the chemical equilibrium in favor of the products.",
+          "error_type": "logic_error",
+          "explanation": "Enzymes accelerate the rate at which equilibrium is reached but do not alter the equilibrium constant or the thermodynamic yield of the reaction."
+        },
+        {
+          "wrong_answer": "Enzymes make unfavorable reactions happen by lowering the overall free energy change so the reaction becomes spontaneous.",
+          "error_type": "logic_error",
+          "explanation": "Enzymes do not alter the overall free energy change (ΔG). They only reduce the activation energy barrier required to reach the transition state."
+        },
+        {
+          "wrong_answer": "The enzyme helps the reaction go faster by acting as an energy source, donating its own chemical energy to the reactants to give them a boost.",
+          "error_type": "logic_error",
+          "explanation": "Enzymes are catalysts. They lower the activation energy barrier through transition-state stabilization without being consumed or acting as a net energy source."
+        }
+      ],
+      "answer_explanation": "Enzymes stabilize the transition state, lowering the activation energy barrier. Equilibrium constant is unchanged — only the rate increases.",
+      "fallback_hint": "What specific energetic barrier is reduced when a catalyst binds and stabilizes reactant molecules?"
+    },
+    {
+      "id": "s_enzymes_L2",
+      "tier": "socratic",
+      "cluster": "enzymes",
+      "topic": "Enzyme Catalysis",
+      "level": 2,
+      "question_text": "Why does the induced-fit model explain catalytic specificity more accurately than the rigid lock-and-key model?",
+      "correct_answer": "Active sites flexibly change shape upon substrate contact, optimizing chemical binding and transition state alignment.",
+      "accepted_variants": [
+        "Flexible active sites adjust shape when binding substrates, improving alignment and catalytic stabilization.",
+        "The active site changes its shape upon substrate binding to optimize transition state interactions.",
+        "Binding induces flexible shape adjustments in active sites upon substrate contact, enhancing structural fit and reaction catalysis."
+      ],
+      "key_terms": ["active site", "substrate", "shape"],
+      "min_words": 5,
+      "misconceptions": [
+        {
+          "wrong_answer": "The enzyme acts like a physical vise or clamp that forcefully crushes and bends the substrate into shape using mechanical pressure.",
+          "error_type": "logic_error",
+          "explanation": "Enzyme catalysis and induced fit rely on thermodynamic stabilization of the transition state through non-covalent interactions (hydrogen bonding, charge matching) — not on macro-scale mechanical force or compression."
+        },
+        {
+          "wrong_answer": "Induced fit means the enzyme's active site is completely shapeless and flexible beforehand, so it can mold itself to fit almost any molecule that enters.",
+          "error_type": "logic_error",
+          "explanation": "Catalytic specificity is preserved. The conformational change of induced fit is only triggered by the correct substrate's specific binding interactions, not by any molecule."
+        }
+      ],
+      "answer_explanation": "Induced fit means the active site molds to the substrate on contact, optimizing alignment. Rigid lock-and-key cannot explain the shape adjustment.",
+      "fallback_hint": "How does the binding pocket adapt its physical conformation when making initial contact with reactants?"
+    },
+    {
+      "id": "f_015",
+      "tier": "filter",
+      "cluster": "genetic_algorithms",
+      "topic": "Genetic Algorithms",
+      "question_text": "Which operator in a genetic algorithm combines features from two parent candidate solutions to create offspring?",
+      "correct_answer": "Crossover",
+      "accepted_variants": ["Crossover", "Recombination", "Crossover operator"],
+      "key_terms": [],
+      "min_words": 1,
+      "misconceptions": [],
+      "answer_explanation": "",
+      "fallback_hint": ""
+    },
+    {
+      "id": "f_016",
+      "tier": "filter",
+      "cluster": "genetic_algorithms",
+      "topic": "Genetic Algorithms",
+      "question_text": "What component in a genetic algorithm evaluates how well a candidate solution solves the target problem?",
+      "correct_answer": "Fitness function",
+      "accepted_variants": ["Fitness function", "Fitness score", "Fitness evaluation"],
+      "key_terms": [],
+      "min_words": 1,
+      "misconceptions": [],
+      "answer_explanation": "",
+      "fallback_hint": ""
+    },
+    {
+      "id": "s_genetic_algorithms_L1",
+      "tier": "socratic",
+      "cluster": "genetic_algorithms",
+      "topic": "Genetic Algorithms",
+      "level": 1,
+      "question_text": "How does the mutation operator prevent an evolutionary algorithm from becoming trapped in local optima?",
+      "correct_answer": "Mutation alters individual gene values to introduce diversity into the population space.",
+      "accepted_variants": [
+        "By randomly modifying genes, mutation maintains diversity within the candidate solution population.",
+        "Mutation introduces random gene changes that sustain population diversity during search generations.",
+        "Random gene alterations from mutation supply needed diversity across the solution population."
+      ],
+      "key_terms": ["gene", "diversity", "population"],
+      "min_words": 5,
+      "misconceptions": [
+        {
+          "wrong_answer": "Mutation acts like an intelligent corrective tool that deliberately fixes bad traits when the algorithm gets stuck so it can find the right path.",
+          "error_type": "logic_error",
+          "explanation": "Mutation is a random stochastic operator that alters gene values blindly. It has no foresight, intent, or knowledge of the global optimum."
+        },
+        {
+          "wrong_answer": "Mutation systematically scans every possible corner of the search space that the population hasn't visited yet, guaranteeing it will eventually find a better peak.",
+          "error_type": "logic_error",
+          "explanation": "Mutation introduces random, localized perturbations to individual solutions. It does not execute a comprehensive or systematic exploration of the entire state space."
+        },
+        {
+          "wrong_answer": "To escape a local optimum, the mutation operator has to completely wipe out and rewrite the entire chromosome of every individual.",
+          "error_type": "logic_error",
+          "explanation": "Escaping local optima relies on small, low-probability stochastic gene alterations distributed across a diverse population — not total structural rewrites."
+        }
+      ],
+      "answer_explanation": "Mutation randomly alters gene values, injecting diversity. That diversity keeps the population exploring alternative regions instead of converging locally.",
+      "fallback_hint": "What stochastic modification keeps all individuals in a generation from turning into identical copies?"
+    },
+    {
+      "id": "s_genetic_algorithms_L2",
+      "tier": "socratic",
+      "cluster": "genetic_algorithms",
+      "topic": "Genetic Algorithms",
+      "level": 2,
+      "question_text": "Why does choosing candidates purely based on highest performance scores cause premature convergence in early generations?",
+      "correct_answer": "Unchecked selection eliminates population diversity before the search space is adequately explored.",
+      "accepted_variants": [
+        "Strong selection destroys population diversity before exploring alternative search regions.",
+        "Strict selection reduces population diversity too quickly, trapping search runs in sub-optimal points.",
+        "Exclusive selection depletes population diversity before full search exploration occurs."
+      ],
+      "key_terms": ["selection", "diversity", "search"],
+      "min_words": 5,
+      "misconceptions": [
+        {
+          "wrong_answer": "If an early candidate gets a really high fitness score, the algorithm has found the absolute best solution, so locking onto it quickly is a good thing.",
+          "error_type": "logic_error",
+          "explanation": "A high score in early generations typically reflects a local optimum, not the global one. Aggressive selection stops the search from exploring alternative, potentially superior regions."
+        },
+        {
+          "wrong_answer": "Greedy selection causes premature convergence because the program actively deletes all the bad genes from memory right at the start.",
+          "error_type": "logic_error",
+          "explanation": "Diversity is lost because fitter variants out-reproduce and crowd out other lineages over generations — not through active programmatic deletion of non-selected genetic material."
+        }
+      ],
+      "answer_explanation": "Greedy selection lets high-fitness individuals dominate early, collapsing diversity before the space is explored, causing premature convergence.",
+      "fallback_hint": "What happens to the variety of gene combinations when high-scoring solutions rapidly dominate the entire pool?"
+    }
+  ]
+}

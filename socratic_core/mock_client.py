@@ -1,0 +1,90 @@
+"""
+mock_client.py — offline stand-in for ``InferenceClient``.
+
+Role in the architecture
+------------------------
+Lets ``classifier_llm`` and (later) ``hint_pipeline`` be exercised on an
+x86-64 dev machine where the Genie runtime cannot run. Returns the same
+five-key dict as ``InferenceClient.generate()`` so callers cannot tell the
+difference, and records every call so tests can assert on what was sent.
+
+Dispatch is on the opening phrase of each system prompt, which is unique to
+its template: the hint prompt never says "grading" and the classifier prompt
+never says "Socratic tutor". Inside the classifier branch the label is
+chosen by whichever of ``wording``/``logic`` appears *last* in the prompt;
+the student's answer is the final thing there, so a test can steer the
+label by what it puts in the answer.
+
+The marker strings are copied from ``hint_pipeline.SYSTEM_PROMPT`` and
+``classifier_llm.SYSTEM_PROMPT``. If either opening sentence is reworded,
+update the matching marker here or the mock falls through to the generic
+reply.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Optional
+
+DEFAULT_CONFIDENCE = 0.92
+
+HINT_PROMPT_MARKER = "You are a Socratic tutor."
+CLASSIFIER_PROMPT_MARKER = "You are grading a student's wrong answer for a tutor."
+
+# Canned completions, in the same ``LABEL/CONFIDENCE/REASONING`` layout that
+# classifier_llm asks the real model for.
+_WORDING_TEXT = (
+    "LABEL: wording_error\n"
+    "CONFIDENCE: {conf:.2f}\n"
+    "REASONING: The student has the right idea but used the wrong term for it."
+)
+_LOGIC_TEXT = (
+    "LABEL: logic_error\n"
+    "CONFIDENCE: {conf:.2f}\n"
+    "REASONING: The student uses the right vocabulary but the reasoning does not hold."
+)
+_HINT_TEXT = "What would happen to that process if the part you named were removed?"
+_GENERIC_TEXT = "Understood."
+
+
+class MockInferenceClient:
+    """Drop-in for ``InferenceClient`` with canned, keyword-driven replies."""
+
+    def __init__(
+        self,
+        fail_mode: bool = False,
+        force_confidence: Optional[float] = None,
+    ) -> None:
+        self.fail_mode = fail_mode
+        self.force_confidence = force_confidence
+        self.call_log: list[dict[str, Any]] = []
+        self.last_result: Optional[dict[str, Any]] = None
+
+    def generate(self, prompt: str, max_tokens: int = 256) -> dict:
+        if self.fail_mode:
+            result = self._result("", error="mock failure")
+        else:
+            result = self._result(self._canned_text(prompt))
+        self.call_log.append({"prompt": prompt, "response": result})
+        self.last_result = result
+        return result
+
+    def _canned_text(self, prompt: str) -> str:
+        if HINT_PROMPT_MARKER in prompt:
+            return _HINT_TEXT
+        if CLASSIFIER_PROMPT_MARKER in prompt:
+            lowered = prompt.lower()
+            conf = self.force_confidence if self.force_confidence is not None else DEFAULT_CONFIDENCE
+            template = _WORDING_TEXT if lowered.rfind("wording") > lowered.rfind("logic") else _LOGIC_TEXT
+            return template.format(conf=conf)
+        return _GENERIC_TEXT
+
+    @staticmethod
+    def _result(text: str, error: Optional[str] = None) -> dict[str, Any]:
+        tokens = len(text.split())
+        return {
+            "text": text,
+            "ttft_ms": 0.0 if error else 1.0,
+            "total_ms": 0.0 if error else float(tokens),
+            "tokens_generated": tokens,
+            "error": error,
+        }
