@@ -24,6 +24,7 @@ sys.path.insert(0, str(ROOT))
 
 from socratic_core import classifier_behavioral as beh  # noqa: E402
 from socratic_core.classifier_behavioral import classify_behavioural  # noqa: E402
+from socratic_core.disengagement import flag_disengagement  # noqa: E402
 from socratic_core.question_bank import (  # noqa: E402
     Misconception,
     Question,
@@ -154,6 +155,38 @@ class QuestionBankTests(unittest.TestCase):
             with self.assertRaises(QuestionBankError):
                 load_question_bank(p)
 
+    def _load_one(self, raw: dict):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "bank.json"
+            p.write_text(json.dumps({"questions": [raw]}), encoding="utf-8")
+            return load_question_bank(p)
+
+    _SOCRATIC_RAW = {
+        "id": "s_x", "tier": "socratic", "cluster": "c", "topic": "t", "level": 1,
+        "question_text": "q", "correct_answer": "a", "accepted_variants": ["a"],
+        "key_terms": ["a"], "min_words": 3, "fallback_hint": "h?",
+        "misconceptions": [{"wrong_answer": "w", "error_type": "logic_error", "explanation": "e"}],
+    }
+    _FILTER_RAW = {
+        "id": "f_x", "tier": "filter", "cluster": "c", "topic": "t",
+        "question_text": "q", "correct_answer": "a", "accepted_variants": ["a"],
+        "min_words": 1, "fallback_hint": "",
+    }
+
+    def test_natural_correct_example_optional_on_socratic(self):
+        self.assertEqual(self._load_one(dict(self._SOCRATIC_RAW)).get("s_x").natural_correct_example, "")
+        q = self._load_one({**self._SOCRATIC_RAW, "natural_correct_example": "old ones split"}).get("s_x")
+        self.assertEqual(q.natural_correct_example, "old ones split")
+
+    def test_natural_correct_example_must_be_string(self):
+        with self.assertRaises(QuestionBankError):
+            self._load_one({**self._SOCRATIC_RAW, "natural_correct_example": 3})
+
+    def test_filter_rejects_natural_correct_example(self):
+        self.assertEqual(self._load_one(dict(self._FILTER_RAW)).get("f_x").natural_correct_example, "")
+        with self.assertRaises(QuestionBankError):
+            self._load_one({**self._FILTER_RAW, "natural_correct_example": ""})
+
 
 class BehavioralClassifierTests(unittest.TestCase):
     def test_idk_with_context_is_low_effort(self):
@@ -186,8 +219,37 @@ class BehavioralClassifierTests(unittest.TestCase):
         for a in ("idk lol whatever", "I don't know this one", "can we skip this", "no idea honestly"):
             self.assertEqual(classify_behavioural(a, Q1), "low_effort", a)
 
-    def test_off_topic(self):
-        self.assertEqual(classify_behavioural("my favourite football team won yesterday", Q1), "low_effort")
+    def test_off_topic_alone_falls_through(self):
+        # Option B: off-topic is a routing signal, not a verdict. Without a
+        # disengagement token it must reach key_terms and then the LLM.
+        answer = "my favourite football team won yesterday"
+        self.assertTrue(beh.is_off_topic(answer, Q1))
+        self.assertIsNone(classify_behavioural(answer, Q1))
+        self.assertIsNone(beh.explain(answer, Q1))
+
+    def test_off_topic_natural_language_falls_through(self):
+        # T1: a genuine paraphrase sharing no stemmed vocabulary with the
+        # question. This is the case Option B exists to rescue.
+        answer = "The body makes more of itself when you get hurt"
+        self.assertTrue(beh.is_off_topic(answer, Q1))
+        self.assertFalse(flag_disengagement(answer)[0])
+        self.assertIsNone(classify_behavioural(answer, Q1))
+
+    def test_off_topic_with_disengagement_token_is_low_effort(self):
+        # T2: off-topic *and* a meme token is the one combination that still
+        # produces a verdict at the gate.
+        answer = "skibidi my favourite football team won yesterday"
+        self.assertTrue(beh.is_off_topic(answer, Q1))
+        self.assertTrue(flag_disengagement(answer)[0])
+        self.assertEqual(classify_behavioural(answer, Q1), "low_effort")
+        self.assertIn("disengagement", beh.explain(answer, Q1))
+
+    def test_no_idea_is_low_effort_via_give_up_phrase(self):
+        # T3 regression guard: "No idea" must never fall through. It is caught
+        # by rule 1, not by min_words -- Q1.min_words is 1.
+        self.assertEqual(classify_behavioural("No idea", Q1), "low_effort")
+        self.assertIn("give-up phrase", beh.explain("No idea", Q1))
+        self.assertFalse(beh.is_off_topic("No idea", Q1))
 
     def test_on_topic_wrong_answer_returns_none(self):
         # Genuine attempt: must fall through to the next layer.

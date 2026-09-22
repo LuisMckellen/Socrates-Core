@@ -15,7 +15,13 @@ Rules, in this exact order:
   2. word_count < question.min_words                      -> low_effort
      Lower bound only. There is no maximum length; a long answer is only
      wrong if its content is wrong.
-  3. no keyword overlap with the question's vocabulary    -> low_effort
+  3. no keyword overlap with the question's vocabulary    -> routing signal
+     Off-topic on its own is *not* a verdict. A student paraphrasing in their
+     own words ("The body makes more of itself when you get hurt") shares no
+     stemmed vocabulary with the question, yet is a genuine attempt that the
+     LLM should judge. Only off-topic *paired with* a disengagement token
+     ("skibidi", "tung", ...) is treated as low_effort; off-topic alone
+     returns None and falls through to key_terms and then the LLM.
   4. otherwise                                            -> None
 
 The state machine checks correctness before calling this, so a short correct
@@ -30,6 +36,7 @@ from __future__ import annotations
 import re
 from typing import Optional
 
+from .disengagement import flag_disengagement
 from .question_bank import ErrorType, Question, crude_stem, normalize, tokenize
 
 # Answers with fewer content words than this are too short for the
@@ -96,7 +103,13 @@ def explain(answer: str, question: Question) -> Optional[str]:
     if is_too_short(answer, question):
         return f"fewer than min_words={question.min_words} words"
     if is_off_topic(answer, question):
-        return "no keyword overlap with question"
+        # Deliberate second call: state_machine already ran flag_disengagement
+        # for the log. Reading it there instead would mean changing this
+        # function's two-argument signature, which callers depend on.
+        disengaged, tokens = flag_disengagement(answer)
+        if disengaged:
+            return f"off-topic with disengagement tokens: {tokens}"
+        # Off-topic alone is a routing signal, not a verdict -> next layer.
     return None
 
 

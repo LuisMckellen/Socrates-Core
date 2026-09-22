@@ -3,10 +3,13 @@ disengagement.py — flag meme/slang tokens in a student answer (Change 6).
 
 Role in the architecture
 ------------------------
-Logged on every turn, both tiers. Option A: purely observational. It never
-changes ``verdict``, ``error_type`` or mastery — a meme-laden answer that
-still contains the right concept scores exactly as it would without the
-noise (see ``noise.py`` for the layer that actually tolerates the noise).
+Logged on every turn, both tiers. Option A/B hybrid: disengagement is
+observational on its own. It becomes verdict-affecting only when paired with
+an off-topic answer in the behavioural classifier (see
+``classifier_behavioral.py``). Standalone occurrence still does not alter
+verdict, error_type, or mastery — a meme-laden answer that still contains the
+right concept scores exactly as it would without the noise (see ``noise.py``
+for the layer that actually tolerates the noise).
 """
 
 from __future__ import annotations

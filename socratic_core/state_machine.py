@@ -16,13 +16,16 @@ A *socratic* question runs the full pipeline. For every student answer it
 first checks correctness against the bank, then walks the classification
 layers in a fixed order and stops at the first one that decides:
 
-    1. behavioural: give-up keyword or word_count < min_words -> low_effort (0 ms)
+    1. behavioural: give-up keyword, word_count < min_words, or an off-topic
+       answer carrying a disengagement token -> low_effort (0 ms).
+       Off-topic on its own does not decide; it falls through to layer 2.
     2. key_terms (Case A/B/C, ``_classify_by_key_terms``):
        all of the question's key_terms present (allowing synonyms,
        ``synonyms.expand_terms``)   -> correct           (0 ms)
        some present, some missing   -> partial            (0 ms)
        none present                 -> continue to layer 3
-    3. LLM classifier                -> wording/logic      (NPU)
+    3. LLM classifier                -> correct / wording / logic (NPU),
+                                        mapped to a verdict by ``LLM_VERDICTS``
 
 then hint generation (LLM + pure-Python validator). The bank's misconceptions
 are never looked up as a live classification stage; they exist only as
@@ -34,16 +37,24 @@ After ``max_attempts`` wrong answers on one question the session escalates:
 it reveals a minimal two-line answer taken from the bank (never from the
 model), marks the question as stuck, and advances.
 
-Per-cluster mastery (``mastery.py``) is updated after every filter answer
-and after every Socratic question resolves, and a snapshot is logged on
-every turn.
+Per-cluster mastery (``mastery.py``) is updated after every filter answer,
+on every correct, partial or wrong Socratic answer (never on low_effort),
+and a snapshot is logged on every turn.
 
 The LLM-facing steps are injected as plain callables so this module can be
 exercised with no model at all:
 
     classifier_fn(question, answer)             -> Mapping with
                                                    error_type / confidence / reasoning
+                                                   (error_type: correct, wording_error
+                                                   or logic_error; optional raw_output)
     hint_fn(question, answer, error_type)       -> hint string
+
+The classifier's label is turned into a verdict only through ``LLM_VERDICTS``:
+``correct`` scores and advances exactly like a key_terms Case A answer (no
+hint); ``wording_error`` and ``logic_error`` are both a wrong verdict, the
+label surviving as ``error_type``. Any other label fails closed to
+``logic_error``.
 
 If either is ``None`` a conservative offline default is used (``logic_error``
 and the bank's ``fallback_hint``). ``run_session.py`` wires in the real
@@ -72,7 +83,6 @@ from .escalation import choose_escalation
 from .mastery import should_escalate, update_mastery
 from .noise import NOISE_TOLERANCE_PREFIX
 from .question_bank import (
-    VALID_ERROR_TYPES,
     ErrorType,
     Question,
     QuestionBank,
@@ -83,6 +93,15 @@ from .synonyms import expand_terms
 ENV_SESSIONS_DIR = "SOCRATIC_SESSIONS_DIR"
 DEFAULT_SESSIONS_DIRNAME = "sessions"
 DEFAULT_MAX_ATTEMPTS = 3
+
+# LLM classifier label -> (verdict, kind). The only place an LLM label becomes
+# a verdict. wording_error is an error_type, not a verdict: it scores wrong.
+LLM_VERDICTS: dict[str, tuple[str, str]] = {
+    "correct": ("correct", "socratic_correct"),
+    "logic_error": ("wrong", "socratic_wrong"),
+    "wording_error": ("wrong", "socratic_wrong"),
+}
+LLM_FALLBACK_LABEL = "logic_error"
 
 ClassifierFn = Callable[[Question, str], Mapping[str, Any]]
 HintFn = Callable[[Question, str, ErrorType], str]
@@ -325,7 +344,8 @@ class SocraticSession:
 
         st.attempt_count += 1
 
-        # Layer 1: behavioural (give-up keyword / too short / off-topic).
+        # Layer 1: behavioural (give-up keyword / too short / off-topic paired
+        # with a disengagement token). Off-topic alone falls through.
         reason = classifier_behavioral.explain(answer, question)
         kt_verdict: Optional[str] = None
         matched: list[str] = []
@@ -335,25 +355,15 @@ class SocraticSession:
             kt_verdict, matched, missing = self._classify_by_key_terms(question, answer)
 
         if kt_verdict == "correct":
-            self._log(
-                "answer",
+            return self._socratic_correct(
                 question,
-                tier=question.tier,
-                answer=answer,
-                attempt=st.attempt_count,
-                correct=True,
-                verdict="correct",
-                kind="socratic_correct",
+                answer,
                 error_source="key_terms",
-                key_terms_matched=matched,
-                key_terms_missing=missing,
-                disengagement_flag=disengaged,
+                matched=matched,
+                missing=missing,
+                disengaged=disengaged,
                 disengagement_tokens=disengagement_tokens,
             )
-            st.solved_question_ids.append(question.id)
-            update_mastery(st.mastery, question.cluster, question.tier, True)
-            self._log("correct", question, attempt=st.attempt_count)
-            return self._advance("correct", question, "Correct.")
 
         if kt_verdict == "partial":
             # error_type stays logic_error: it is the label that goes to the
@@ -398,10 +408,24 @@ class SocraticSession:
             cls = Classification("low_effort", "behavioural", 1.0, reason)
             verdict, kind = "low_effort", "low_effort"
         else:
-            # Layer 3: zero key_terms matched (Case C) -> the LLM classifier.
-            cls = self._classify_llm(question, answer)
-            verdict, kind = "wrong", "socratic_wrong"
-     
+            # Layer 3: zero key_terms matched (Case C) -> the LLM classifier,
+            # whose label becomes a verdict only through LLM_VERDICTS.
+            cls, verdict, kind = self._classify_llm(question, answer)
+            if verdict == "correct":
+                return self._socratic_correct(
+                    question,
+                    answer,
+                    error_source=cls.source,
+                    matched=matched,
+                    missing=missing,
+                    disengaged=disengaged,
+                    disengagement_tokens=disengagement_tokens,
+                    kind=kind,
+                    turn_error_source=cls.source,
+                    confidence=cls.confidence,
+                    reasoning=cls.reasoning,
+                )
+
         st.last_error_type = cls.error_type
         self._log(
             "answer",
@@ -409,7 +433,7 @@ class SocraticSession:
             tier=question.tier,
             answer=answer,
             attempt=st.attempt_count,
-            correct=False,
+            correct=(verdict == "correct"),
             verdict=verdict,
             kind=kind,
             error_type=cls.error_type,
@@ -421,7 +445,9 @@ class SocraticSession:
             disengagement_flag=disengaged,
             disengagement_tokens=disengagement_tokens,
         )
-        update_mastery(st.mastery, question.cluster, "socratic", False)
+        # Every wrong attempt costs mastery immediately; low_effort does not.
+        if verdict == "wrong":
+            update_mastery(st.mastery, question.cluster, question.tier, False)
 
         if st.attempt_count >= st.max_attempts:
             reveal = self._reveal_text(question)
@@ -480,33 +506,89 @@ class SocraticSession:
             return "partial", matched, missing
         return None, matched, missing
 
-    def _classify_llm(self, question: Question, answer: str) -> Classification:
+    def _classify_llm(self, question: Question, answer: str) -> tuple[Classification, str, str]:
         """The LLM classifier, reached only when key_terms matched nothing (Case C).
 
-        Any failure degrades to logic_error rather than breaking the session.
-        The noise-tolerance prefix travels inside the ``answer`` text handed to
-        ``classifier_fn`` because the prompt itself is built inside
-        classifier_llm.py, which this module does not touch.
+        Returns ``(classification, verdict, kind)``, the last two looked up in
+        ``LLM_VERDICTS``. An unknown label, or any failure, degrades to
+        logic_error / wrong rather than breaking the session; it never becomes
+        correct. The noise-tolerance prefix travels inside the ``answer`` text
+        handed to ``classifier_fn`` because the prompt itself is built inside
+        classifier_llm.py.
         """
         t0 = time.perf_counter()
         try:
             raw = self.classifier_fn(question, f"{NOISE_TOLERANCE_PREFIX} {answer}")
         except Exception as e:  # noqa: BLE001 - deliberate: never crash the loop
             self._log("classifier_error", question, error=repr(e))
-            return Classification("logic_error", "llm", 0.0, f"classifier failed: {e!r}")
+            verdict, kind = LLM_VERDICTS[LLM_FALLBACK_LABEL]
+            return Classification(LLM_FALLBACK_LABEL, "llm", 0.0, f"classifier failed: {e!r}"), verdict, kind
         elapsed_ms = (time.perf_counter() - t0) * 1000
 
-        error_type = str(raw.get("error_type", ""))
-        if error_type not in VALID_ERROR_TYPES:
-            error_type = "logic_error"
+        llm_label = str(raw.get("error_type", ""))
+        label = llm_label if llm_label in LLM_VERDICTS else LLM_FALLBACK_LABEL
+        verdict, kind = LLM_VERDICTS[label]
         cls = Classification(
-            error_type,  # type: ignore[arg-type]
+            label,  # type: ignore[arg-type]
             "llm",
             float(raw.get("confidence", 0.0)),
             str(raw.get("reasoning", "")),
         )
-        self._log("llm_classify", question, elapsed_ms=round(elapsed_ms, 1), **asdict(cls))
-        return cls
+        extra: dict[str, Any] = {}
+        if "raw_output" in raw:
+            extra["raw_output"] = str(raw["raw_output"])
+        elif label != llm_label:
+            extra["raw_output"] = repr(dict(raw))
+        self._log(
+            "llm_classify",
+            question,
+            elapsed_ms=round(elapsed_ms, 1),
+            **asdict(cls),
+            llm_label=llm_label,
+            verdict=verdict,
+            kind=kind,
+            **extra,
+        )
+        return cls, verdict, kind
+
+    def _socratic_correct(
+        self,
+        question: Question,
+        answer: str,
+        *,
+        error_source: str,
+        matched: list[str],
+        missing: list[str],
+        disengaged: bool,
+        disengagement_tokens: list[str],
+        kind: str = "socratic_correct",
+        turn_error_source: Optional[str] = None,
+        **log_extra: Any,
+    ) -> TurnResult:
+        """Score a Socratic answer correct and advance: key_terms Case A, or an
+        LLM ``correct``. No hint. ``error_source`` goes to the answer log;
+        ``turn_error_source`` to the returned TurnResult (None for Case A)."""
+        st = self.state
+        self._log(
+            "answer",
+            question,
+            tier=question.tier,
+            answer=answer,
+            attempt=st.attempt_count,
+            correct=True,
+            verdict="correct",
+            kind=kind,
+            error_source=error_source,
+            key_terms_matched=matched,
+            key_terms_missing=missing,
+            disengagement_flag=disengaged,
+            disengagement_tokens=disengagement_tokens,
+            **log_extra,
+        )
+        st.solved_question_ids.append(question.id)
+        update_mastery(st.mastery, question.cluster, question.tier, True)
+        self._log("correct", question, attempt=st.attempt_count)
+        return self._advance("correct", question, "Correct.", error_source=turn_error_source)
 
     def _hint(
         self,
@@ -547,7 +629,11 @@ class SocraticSession:
         question: Question,
         message: str,
         cls: Optional[Classification] = None,
+        error_source: Optional[str] = None,
     ) -> TurnResult:
+        """Move to the next question. ``error_source`` is reported on the
+        TurnResult when there is no ``cls`` (an LLM-correct turn: no error_type,
+        but the llm decided it)."""
         st = self.state
         attempt = st.attempt_count
         self._log("mastery_snapshot", question, mastery=dict(st.mastery))
@@ -567,7 +653,7 @@ class SocraticSession:
             attempt=attempt,
             message=message,
             error_type=cls.error_type if cls else None,
-            error_source=cls.source if cls else None,
+            error_source=cls.source if cls else error_source,
             session_finished=st.finished,
             next_question=self.current_question(),
         )

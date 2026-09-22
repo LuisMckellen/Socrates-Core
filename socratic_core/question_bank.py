@@ -29,12 +29,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterator, Literal, Optional
 
-ErrorType = Literal["wording_error", "logic_error", "low_effort"]
+ErrorType = Literal["correct", "wording_error", "logic_error", "low_effort"]
 VALID_ERROR_TYPES: frozenset[str] = frozenset(
-    {"wording_error", "logic_error", "low_effort"}
+    {"correct", "wording_error", "logic_error", "low_effort"}
 )
 # low_effort is a behavioural verdict, never a bank-authored misconception.
-# wording_error is runtime-only (the LLM classifier may still produce it);
+# correct and wording_error are runtime-only labels from the LLM classifier;
 # the bank itself may only author logic_error misconceptions (CHECK 9).
 BANK_ERROR_TYPES: frozenset[str] = frozenset({"logic_error"})
 
@@ -145,6 +145,10 @@ class Question:
     key_terms: tuple[str, ...] = ()
     # Socratic difficulty: 1 or 2. Always None for a filter (CHECK 7).
     level: Optional[int] = None
+    # Socratic-only, optional in the JSON (filters must not carry the key).
+    # One correct answer in everyday words; the LLM classifier shows it as a
+    # ``correct`` few-shot example for this question. "" means none.
+    natural_correct_example: str = ""
 
     def __post_init__(self) -> None:
         if not self.cluster:
@@ -296,6 +300,21 @@ def _parse_question(raw: dict, idx: int) -> Question:
                 f"question {qid!r}: tier 'socratic' requires level in {sorted(SOCRATIC_LEVELS)} (got {level!r})"
             )
 
+    # natural_correct_example: forbidden for filter; optional string for socratic.
+    if tier == "filter":
+        if "natural_correct_example" in raw:
+            raise QuestionBankError(
+                f"question {qid!r}: tier 'filter' must not have a natural_correct_example field"
+            )
+        natural_correct_example = ""
+    else:
+        natural_correct_example = raw.get("natural_correct_example", "")
+        if not isinstance(natural_correct_example, str):
+            raise QuestionBankError(
+                f"question {qid!r}: natural_correct_example must be a string "
+                f"(got {type(natural_correct_example).__name__})"
+            )
+
     accepted_variants = tuple(str(v) for v in raw.get("accepted_variants", []))
     if not accepted_variants:
         raise QuestionBankError(f"question {qid!r}: accepted_variants must contain at least one entry")
@@ -358,6 +377,7 @@ def _parse_question(raw: dict, idx: int) -> Question:
         cluster=cluster,
         key_terms=key_terms,
         level=level,
+        natural_correct_example=natural_correct_example,
     )
 
 

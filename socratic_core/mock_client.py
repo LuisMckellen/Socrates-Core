@@ -11,9 +11,12 @@ difference, and records every call so tests can assert on what was sent.
 Dispatch is on the opening phrase of each system prompt, which is unique to
 its template: the hint prompt never says "grading" and the classifier prompt
 never says "Socratic tutor". Inside the classifier branch the label is
-chosen by whichever of ``wording``/``logic`` appears *last* in the prompt;
-the student's answer is the final thing there, so a test can steer the
-label by what it puts in the answer.
+chosen by whichever of ``correct``/``wording``/``logic`` appears *last* in
+the student's answer (the text after the final "Student answer:"), so a
+test can steer the label by what it puts in the answer; no steering word
+means ``logic_error``. ``NOISE_TOLERANCE_PREFIX`` is cut off first: it ends
+in "present and correct." and would otherwise steer every answer to
+``correct``.
 
 The marker strings are copied from ``hint_pipeline.SYSTEM_PROMPT`` and
 ``classifier_llm.SYSTEM_PROMPT``. If either opening sentence is reworded,
@@ -23,15 +26,26 @@ reply.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Optional
+
+from .noise import NOISE_TOLERANCE_PREFIX
 
 DEFAULT_CONFIDENCE = 0.92
 
 HINT_PROMPT_MARKER = "You are a Socratic tutor."
-CLASSIFIER_PROMPT_MARKER = "You are grading a student's wrong answer for a tutor."
+CLASSIFIER_PROMPT_MARKER = "You are grading a student's answer for a tutor."
+_STUDENT_ANSWER_MARKER = "Student answer:"
+# Word-initial, so "incorrect" does not steer to correct.
+_STEER = re.compile(r"\b(correct|wording|logic)", re.IGNORECASE)
 
 # Canned completions, in the same ``LABEL/CONFIDENCE/REASONING`` layout that
 # classifier_llm asks the real model for.
+_CORRECT_TEXT = (
+    "LABEL: correct\n"
+    "CONFIDENCE: {conf:.2f}\n"
+    "REASONING: The student states the mechanism accurately."
+)
 _WORDING_TEXT = (
     "LABEL: wording_error\n"
     "CONFIDENCE: {conf:.2f}\n"
@@ -72,11 +86,20 @@ class MockInferenceClient:
         if HINT_PROMPT_MARKER in prompt:
             return _HINT_TEXT
         if CLASSIFIER_PROMPT_MARKER in prompt:
-            lowered = prompt.lower()
             conf = self.force_confidence if self.force_confidence is not None else DEFAULT_CONFIDENCE
-            template = _WORDING_TEXT if lowered.rfind("wording") > lowered.rfind("logic") else _LOGIC_TEXT
+            steers = _STEER.findall(self._student_answer(prompt))
+            last = steers[-1].lower() if steers else "logic"
+            template = {"correct": _CORRECT_TEXT, "wording": _WORDING_TEXT}.get(last, _LOGIC_TEXT)
             return template.format(conf=conf)
         return _GENERIC_TEXT
+
+    @staticmethod
+    def _student_answer(prompt: str) -> str:
+        """The case's student answer, with the noise-tolerance prefix removed."""
+        answer = prompt.rsplit(_STUDENT_ANSWER_MARKER, 1)[-1]
+        if NOISE_TOLERANCE_PREFIX in answer:
+            answer = answer.split(NOISE_TOLERANCE_PREFIX, 1)[1]
+        return answer
 
     @staticmethod
     def _result(text: str, error: Optional[str] = None) -> dict[str, Any]:
