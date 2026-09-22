@@ -56,6 +56,7 @@ loses at most the current turn.
 
 from __future__ import annotations
 
+import inspect
 import json
 import os
 import time
@@ -175,6 +176,22 @@ def default_hint(question: Question, answer: str, error_type: ErrorType) -> str:
 # -- the machine --------------------------------------------------------------
 
 
+def _hint_fn_accepts_missing_terms(fn: HintFn) -> bool:
+    """Whether ``fn`` can be handed the partial path's missing key terms.
+
+    ``hint_fn`` is a public injection point with a three-argument contract, so
+    the extra keyword is offered only to callables that declare it. Anything
+    older keeps being called exactly as before.
+    """
+    try:
+        params = inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        return False
+    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()):
+        return True
+    return "missing_terms" in params
+
+
 class SocraticSession:
     """Step-driven dialogue loop. Call ``current_question()`` then
     ``submit_answer()`` repeatedly until ``state.finished``."""
@@ -207,6 +224,7 @@ class SocraticSession:
         self.bank = bank
         self.classifier_fn: ClassifierFn = classifier_fn or default_classifier
         self.hint_fn: HintFn = hint_fn or default_hint
+        self._hint_fn_takes_missing_terms = _hint_fn_accepts_missing_terms(self.hint_fn)
         self.sessions_dir = Path(sessions_dir) if sessions_dir else default_sessions_dir()
         self.autosave = autosave
         # Evaluation switch: skip the misconception layer so every non-low-effort
@@ -338,6 +356,10 @@ class SocraticSession:
             return self._advance("correct", question, "Correct.")
 
         if kt_verdict == "partial":
+            # error_type stays logic_error: it is the label that goes to the
+            # log and to TurnResult, and "partial" is a verdict, not one of
+            # VALID_ERROR_TYPES. The hint layer is steered by missing_terms
+            # instead, which selects HINT_STRATEGY["partial"] downstream.
             cls = Classification("logic_error", "key_terms", 1.0, "partial key-term match")
             update_mastery(st.mastery, question.cluster, "socratic", "partial")
             st.last_error_type = cls.error_type
@@ -357,7 +379,7 @@ class SocraticSession:
                 disengagement_flag=disengaged,
                 disengagement_tokens=disengagement_tokens,
             )
-            hint = self._hint(question, answer, cls.error_type)
+            hint = self._hint(question, answer, cls.error_type, missing_terms=missing)
             self._log("hint", question, attempt=st.attempt_count, error_type=cls.error_type, hint=hint)
             self._log("mastery_snapshot", question, mastery=dict(st.mastery))
             self._maybe_save()
@@ -379,7 +401,7 @@ class SocraticSession:
             # Layer 3: zero key_terms matched (Case C) -> the LLM classifier.
             cls = self._classify_llm(question, answer)
             verdict, kind = "wrong", "socratic_wrong"
-
+     
         st.last_error_type = cls.error_type
         self._log(
             "answer",
@@ -399,11 +421,11 @@ class SocraticSession:
             disengagement_flag=disengaged,
             disengagement_tokens=disengagement_tokens,
         )
+        update_mastery(st.mastery, question.cluster, "socratic", False)
 
         if st.attempt_count >= st.max_attempts:
             reveal = self._reveal_text(question)
             st.stuck_question_ids.append(question.id)
-            update_mastery(st.mastery, question.cluster, question.tier, False)
             self._log("escalation", question, attempt=st.attempt_count, reveal=reveal)
             return self._advance("escalated", question, reveal, cls)
 
@@ -486,10 +508,19 @@ class SocraticSession:
         self._log("llm_classify", question, elapsed_ms=round(elapsed_ms, 1), **asdict(cls))
         return cls
 
-    def _hint(self, question: Question, answer: str, error_type: ErrorType) -> str:
+    def _hint(
+        self,
+        question: Question,
+        answer: str,
+        error_type: ErrorType,
+        missing_terms: Optional[Sequence[str]] = None,
+    ) -> str:
         t0 = time.perf_counter()
         try:
-            hint = self.hint_fn(question, answer, error_type)
+            if missing_terms and self._hint_fn_takes_missing_terms:
+                hint = self.hint_fn(question, answer, error_type, missing_terms=list(missing_terms))
+            else:
+                hint = self.hint_fn(question, answer, error_type)
         except Exception as e:  # noqa: BLE001
             self._log("hint_error", question, error=repr(e))
             hint = question.fallback_hint

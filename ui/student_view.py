@@ -8,6 +8,7 @@ instantiated on a given pass, assigning to its key raises.
 
 from __future__ import annotations
 
+import re
 from html import escape
 from typing import Optional
 
@@ -31,11 +32,57 @@ _VERDICT_COLOUR: dict[str, str] = {
     "low_effort": "#6B7280",  # grey
 }
 
-PRESETS: tuple[str, ...] = (
-    "No idea",
-    "It splits into tung tung sahur",
-    "It splits into new cells",
-)
+PRESET_GIVE_UP = "No idea"
+_LABEL_LIMIT = 72
+
+
+def _drop_first_key_term(question: Question) -> Optional[str]:
+    """The canonical variant minus its first key term: a *partial* answer.
+
+    Produces a response that still carries the question's other key terms, so
+    ``_classify_by_key_terms`` lands on "partial" rather than correct or wrong.
+
+    The removal takes the whole word, not the bare substring: key term "gene"
+    appears in the canonical text as "genes", and cutting the substring would
+    strand an "s" in the middle of the button label.
+    """
+    if not question.key_terms or not question.accepted_variants:
+        return None
+    canonical = question.accepted_variants[0]
+    stripped = re.sub(
+        rf"\b{re.escape(question.key_terms[0])}\w*\b", "", canonical, count=1
+    )
+    stripped = re.sub(r"\s+([,;.])", r"\1", stripped)  # close the gap left behind
+    stripped = " ".join(stripped.split()).strip(" ,;.")
+    if not stripped or stripped == canonical:
+        return None
+    return stripped
+
+
+def build_presets(question: Question) -> list[str]:
+    """Demo answers for ``question``, one per pipeline outcome.
+
+    Filters classify nothing, so they only get give-up and correct. A Socratic
+    question additionally gets its first misconception (reaches the LLM
+    classifier) and a partial answer (resolved by the key-terms layer).
+    """
+    presets = [PRESET_GIVE_UP]
+    if question.tier == "socratic":
+        if question.misconceptions:
+            # Misconception is a frozen dataclass, not a mapping.
+            presets.append(question.misconceptions[0].wrong_answer)
+        partial = _drop_first_key_term(question)
+        if partial:
+            presets.append(partial)
+    presets.append(question.correct_answer)
+    return presets
+
+
+def _label(text: str) -> str:
+    """Bank answers run to full sentences; buttons get a readable stub."""
+    if len(text) <= _LABEL_LIMIT:
+        return text
+    return text[: _LABEL_LIMIT - 1].rstrip() + "…"
 
 
 def _badge(text: str, bg: str = "#1A1A1D", fg: str = "#E5E5E7") -> str:
@@ -46,13 +93,17 @@ def _badge(text: str, bg: str = "#1A1A1D", fg: str = "#E5E5E7") -> str:
 
 
 def _submit() -> None:
+    # Streamlit syncs widget values into session_state before callbacks run,
+    # so this is the live text area contents, not a stale copy.
     answer = st.session_state.sc_answer_draft
     if not answer.strip():
         return
     session: SocraticSession = st.session_state.sc_session
     st.session_state.sc_last_result = session.submit_answer(answer)
     st.session_state.sc_turn_count += 1
-    st.session_state.sc_answer_draft = ""
+    # Left in place rather than cleared: the graded answer stays on screen next
+    # to the verdict it produced. A preset click or an edit replaces it.
+    st.session_state.sc_answer_draft = answer
 
 
 def _fill_draft(text: str) -> None:
@@ -79,7 +130,7 @@ def render_question_card(question: Question) -> None:
     )
 
 
-def render_answer_input() -> None:
+def render_answer_input(question: Question) -> None:
     st.text_area("Your answer", key="sc_answer_draft", height=80)
     # Not disabled on an empty draft: the text area only commits its value on
     # blur, so a disabled button would swallow the click that blurs it.
@@ -87,13 +138,27 @@ def render_answer_input() -> None:
     st.button("Submit Answer", type="primary", on_click=_submit)
 
     st.caption("Demo answers")
-    for column, preset in zip(st.columns(len(PRESETS)), PRESETS):
-        column.button(
-            preset,
-            key=f"sc_preset_{preset}",
+    # Stacked rather than columned: bank answers are full sentences and would
+    # be truncated past legibility in a narrow column.
+    for i, preset in enumerate(build_presets(question)):
+        st.button(
+            _label(preset),
+            key=f"sc_preset_{i}",
+            help=preset if len(preset) > _LABEL_LIMIT else None,
             on_click=_fill_draft,
             args=(preset,),
         )
+
+
+def graded_answer(session: SocraticSession) -> Optional[str]:
+    """The answer string the visible verdict was produced from.
+
+    Read back from the log rather than from ``sc_answer_draft``, which a
+    preset click or an edit can move on to something else while the feedback
+    card is still showing the previous turn.
+    """
+    event = state.last_answer_event(session.state.history) or {}
+    return event.get("answer") or None
 
 
 def render_feedback(session: SocraticSession, result: TurnResult) -> None:
@@ -102,6 +167,13 @@ def render_feedback(session: SocraticSession, result: TurnResult) -> None:
     verdict = str(answer_event.get("verdict", "wrong"))
 
     st.divider()
+    graded = graded_answer(session)
+    if graded:
+        st.markdown(
+            f"<div style='color:#8A8A90;font-size:0.82rem;margin-bottom:9px;'>"
+            f"You answered: {escape(graded)}</div>",
+            unsafe_allow_html=True,
+        )
     st.markdown(
         _badge(verdict, bg=_VERDICT_COLOUR.get(verdict, "#6B7280"), fg="#F8FAFC"),
         unsafe_allow_html=True,
@@ -147,6 +219,6 @@ def render() -> None:
         return
 
     render_question_card(question)
-    render_answer_input()
+    render_answer_input(question)
     if result is not None:
         render_feedback(session, result)

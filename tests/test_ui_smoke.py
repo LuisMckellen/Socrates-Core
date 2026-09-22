@@ -15,14 +15,16 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from socratic_core.mock_client import MockInferenceClient  # noqa: E402
 from socratic_core.question_bank import load_question_bank  # noqa: E402
-from socratic_core.state_machine import ENV_SESSIONS_DIR  # noqa: E402
-from ui import state  # noqa: E402
+from socratic_core.state_machine import ENV_SESSIONS_DIR, SocraticSession  # noqa: E402
+from ui import state, student_view  # noqa: E402
 
 
 class TestUISmoke(unittest.TestCase):
@@ -119,6 +121,112 @@ class TestUISmoke(unittest.TestCase):
         self.assertIsNone(state.find_event(second, "escalation_choice"))
         self.assertEqual(second[0].get("event"), "llm_classify")
         self.assertIsNotNone(state.find_event(second, "answer"))
+
+    def test_build_presets_socratic_has_three_to_four(self) -> None:
+        socratic = [q for q in self.bank if q.tier == "socratic"]
+        self.assertTrue(socratic)
+        for question in socratic:
+            presets = student_view.build_presets(question)
+            with self.subTest(question=question.id):
+                self.assertTrue(3 <= len(presets) <= 4, presets)
+                self.assertEqual(presets[0], student_view.PRESET_GIVE_UP)
+                self.assertEqual(presets[-1], question.correct_answer)
+                self.assertEqual(presets[1], question.misconceptions[0].wrong_answer)
+                self.assertEqual(len(set(presets)), len(presets))
+
+    def test_build_presets_filter_has_two(self) -> None:
+        filters = [q for q in self.bank if q.tier == "filter"]
+        self.assertTrue(filters)
+        for question in filters:
+            with self.subTest(question=question.id):
+                self.assertEqual(
+                    student_view.build_presets(question),
+                    [student_view.PRESET_GIVE_UP, question.correct_answer],
+                )
+
+    def test_partial_preset_misses_one_key_term(self) -> None:
+        """The partial preset must actually reach the key-terms partial branch.
+
+        Asserted against the state machine's own classifier rather than a
+        re-implementation, so the preset is verified to demo the real path.
+        """
+        checked = 0
+        for question in self.bank:
+            if question.tier != "socratic":
+                continue
+            presets = student_view.build_presets(question)
+            if len(presets) < 4:
+                continue
+            verdict, matched, missing = SocraticSession._classify_by_key_terms(
+                question, presets[2]
+            )
+            with self.subTest(question=question.id):
+                self.assertEqual(verdict, "partial")
+                self.assertEqual(missing, [question.key_terms[0]])
+                self.assertTrue(matched)
+                self.assertFalse(question.is_correct(presets[2]))
+            checked += 1
+        self.assertEqual(checked, len([q for q in self.bank if q.tier == "socratic"]))
+
+
+    def test_submit_keeps_answer_in_draft(self) -> None:
+        """The graded answer stays in the box so it sits beside its verdict."""
+        session = state.build_session(
+            self.bank, ["cell_theory"], client=MockInferenceClient()
+        )
+        question = session.current_question()
+        stub = SimpleNamespace(
+            session_state=SimpleNamespace(
+                sc_answer_draft=question.correct_answer,
+                sc_session=session,
+                sc_last_result=None,
+                sc_turn_count=0,
+            )
+        )
+
+        with mock.patch.object(student_view, "st", stub):
+            student_view._submit()
+        self.assertEqual(stub.session_state.sc_answer_draft, question.correct_answer)
+        self.assertEqual(stub.session_state.sc_turn_count, 1)
+        self.assertEqual(stub.session_state.sc_last_result.kind, "correct")
+
+        # Dismissing feedback must not disturb the preserved answer.
+        with mock.patch.object(student_view, "st", stub):
+            student_view._dismiss_feedback()
+        self.assertEqual(stub.session_state.sc_answer_draft, question.correct_answer)
+        self.assertIsNone(stub.session_state.sc_last_result)
+
+        # A preset click overwrites it; a blank submit is ignored.
+        with mock.patch.object(student_view, "st", stub):
+            student_view._fill_draft("No idea")
+            self.assertEqual(stub.session_state.sc_answer_draft, "No idea")
+            stub.session_state.sc_answer_draft = "   "
+            student_view._submit()
+        self.assertEqual(stub.session_state.sc_turn_count, 1)
+
+
+    def test_feedback_card_shows_graded_answer(self) -> None:
+        """The card is labelled from the log, so a preset click cannot desync it."""
+        session = state.build_session(
+            self.bank, ["cell_theory"], client=MockInferenceClient()
+        )
+        self.assertIsNone(student_view.graded_answer(session))
+
+        submitted = "  banana  "
+        session.submit_answer(submitted)
+        # The state machine logs the stripped answer; that is what was graded.
+        self.assertEqual(student_view.graded_answer(session), submitted.strip())
+
+        # Overwriting the draft (preset click) must not change the label.
+        stub = SimpleNamespace(session_state=SimpleNamespace(sc_answer_draft=""))
+        with mock.patch.object(student_view, "st", stub):
+            student_view._fill_draft("It splits into new cells")
+        self.assertEqual(stub.session_state.sc_answer_draft, "It splits into new cells")
+        self.assertEqual(student_view.graded_answer(session), "banana")
+
+        # A second turn relabels the card.
+        session.submit_answer("Rudolf Virchow")
+        self.assertEqual(student_view.graded_answer(session), "Rudolf Virchow")
 
 
 if __name__ == "__main__":

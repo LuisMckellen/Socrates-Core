@@ -93,7 +93,9 @@ def build_session(
         bank,
         question_ids=question_ids_for_clusters(bank, clusters),
         classifier_fn=make_classifier_fn(client),
-        hint_fn=lambda q, a, e: hint_pipeline(q, a, e, client)["hint"],
+       hint_fn=lambda q, a, e, *, missing_terms=None: hint_pipeline(
+    q, a, e, client, missing_terms=missing_terms
+)["hint"],
     )
 
 

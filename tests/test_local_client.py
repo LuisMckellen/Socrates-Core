@@ -14,6 +14,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+# LocalCPUClient imports llama_cpp lazily, so the module below loads fine
+# without it -- but generating anything needs the real runtime. Raised as
+# unittest.SkipTest rather than pytest.importorskip so that the discover
+# runner named in the docstring above skips this module too instead of
+# erroring on a pytest-only exception type.
+try:
+    import llama_cpp  # noqa: F401
+except ImportError:  # pragma: no cover - environment-dependent
+    raise unittest.SkipTest("llama-cpp-python not installed in this environment")
+
 from socratic_core.local_client import DEFAULT_MODEL_PATH, LocalCPUClient  # noqa: E402
 
 MODEL_PATH = ROOT / DEFAULT_MODEL_PATH

@@ -43,7 +43,7 @@ def update_mastery(mastery: dict, cluster: str, tier: str, correct: bool | str) 
     try:
         delta = _DELTAS[(tier, correct)]
     except KeyError:
-        raise ValueError(f"unknown tier {tier!r}") from None
+        raise ValueError(f"unknown tier ({tier!r},{correct!r})") from None
     current = mastery.get(cluster, INITIAL_MASTERY)
     mastery[cluster] = max(MASTERY_FLOOR, min(MASTERY_CEILING, current + delta))
     return mastery

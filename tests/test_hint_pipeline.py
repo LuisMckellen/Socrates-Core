@@ -13,7 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from socratic_core.hint_pipeline import hint_pipeline, validate_hint  # noqa: E402
+from socratic_core.hint_pipeline import HINT_STRATEGY, hint_pipeline, validate_hint  # noqa: E402
 from socratic_core.mock_client import MockInferenceClient  # noqa: E402
 from socratic_core.question_bank import Question  # noqa: E402
 
@@ -114,6 +114,57 @@ class PipelineTests(unittest.TestCase):
         self.assertIn(Q1.question_text.lower(), prompt)
         self.assertIn("the atom", prompt)
         self.assertIn("logic_error", prompt)
+
+
+class PartialStrategyTests(unittest.TestCase):
+    """Case B (key_terms partial) must aim the hint at the omitted idea."""
+
+    MISSING = ["alive"]
+
+    def test_partial_hint_mentions_missing_key_term(self):
+        # The base mock answers every hint prompt with one canned question that
+        # names nothing, so the pipeline falls through to the partial template.
+        mock = MockInferenceClient()
+        r = hint_pipeline(Q1, "the atom", "logic_error", mock, missing_terms=self.MISSING)
+        self.assertEqual(r["source"], "partial_template")
+        self.assertIn("alive", r["hint"].lower())
+        self.assertNotEqual(r["hint"], Q1.fallback_hint)
+        self.assertTrue(validate_hint(r["hint"], Q1)[0])
+        self.assertEqual(r["rejections"], ["names no missing key term"] * 2)
+
+        # A model hint that does name the term is kept as-is.
+        scripted = _ScriptedClient(["What keeps a thing alive on its own?"])
+        r = hint_pipeline(Q1, "the atom", "logic_error", scripted, missing_terms=self.MISSING)
+        self.assertEqual(r["source"], "llm")
+        self.assertIn("alive", r["hint"].lower())
+
+    def test_partial_hint_differs_from_logic_error_hint(self):
+        logic = hint_pipeline(Q1, "the atom", "logic_error", MockInferenceClient())
+        partial = hint_pipeline(
+            Q1, "the atom", "logic_error", MockInferenceClient(), missing_terms=self.MISSING
+        )
+        self.assertNotEqual(partial["hint"], logic["hint"])
+        self.assertNotEqual(partial["source"], logic["source"])
+        self.assertIn("alive", partial["hint"].lower())
+        self.assertNotIn("alive", logic["hint"].lower())
+
+    def test_partial_strategy_reaches_the_prompt(self):
+        mock = MockInferenceClient()
+        hint_pipeline(Q1, "the atom", "logic_error", mock, missing_terms=self.MISSING)
+        prompt = mock.call_log[0]["prompt"]
+        self.assertIn(HINT_STRATEGY["partial"], prompt)
+        self.assertNotIn(HINT_STRATEGY["logic_error"], prompt)
+        self.assertIn("alive", prompt)
+        # The load-bearing invariant still holds on the new path.
+        self.assertNotIn(Q1.correct_answer.lower(), prompt.lower())
+        self.assertNotIn(Q1.answer_explanation.lower(), prompt.lower())
+
+    def test_empty_missing_terms_behaves_like_before(self):
+        for terms in (None, [], ["", "  "]):
+            r = hint_pipeline(Q1, "the atom", "logic_error", MockInferenceClient(), missing_terms=terms)
+            with self.subTest(terms=terms):
+                self.assertEqual(r["source"], "llm")
+                self.assertEqual(r["rejections"], [])
 
 
 if __name__ == "__main__":

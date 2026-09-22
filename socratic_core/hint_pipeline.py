@@ -20,7 +20,7 @@ only ever be caught, never produced.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional, Sequence
 
 from .inference_client import build_prompt
 from .question_bank import normalize
@@ -48,18 +48,58 @@ HINT_STRATEGY: dict[str, str] = {
         "The student is disengaged. "
         "Ask a smaller, easier question that gets them started."
     ),
+    "partial": (
+        "The student named some of the key ideas but left others out. "
+        "Ask a question that draws out the specific idea they omitted, "
+        "rather than challenging the reasoning they already have right."
+    ),
 }
 
+# Used when the model will not name the omitted idea itself. Phrased as a
+# question so it clears the same validator as a generated hint.
+PARTIAL_HINT_TEMPLATE = (
+    "You're close, but your answer is missing the idea of {term}. "
+    "What role does it play?"
+)
 
-def generate_hint(question: Any, answer: str, error_type: str, client: Any) -> str:
-    """Ask the model for a hint. Returns its text, or "" on client error."""
-    user = (
-        f"Question: {question.question_text}\n"
-        f"Student answer: {answer.strip()}\n"
-        f"Error type: {error_type}\n"
-        f"{HINT_STRATEGY.get(error_type, HINT_STRATEGY['logic_error'])}"
-    )
-    result = client.generate(build_prompt(user, system=SYSTEM_PROMPT), max_tokens=MAX_TOKENS)
+
+
+def _clean_terms(missing_terms: Optional[Sequence[str]]) -> list[str]:
+    return [t.strip() for t in (missing_terms or []) if t and t.strip()]
+
+
+def names_a_missing_term(hint: str, missing_terms: Sequence[str]) -> bool:
+    haystack = normalize(hint)
+    return any(normalize(term) in haystack for term in missing_terms)
+
+
+def generate_hint(
+    question: Any,
+    answer: str,
+    error_type: str,
+    client: Any,
+    *,
+    missing_terms: Optional[Sequence[str]] = None,
+) -> str:
+    """Ask the model for a hint. Returns its text, or "" on client error.
+
+    ``missing_terms`` switches the request to the "partial" strategy: the
+    student's reasoning is not what needs correcting, the gap is. The terms
+    themselves are named in the prompt, which stays inside the module's
+    invariant -- key_terms are a separate bank field from ``correct_answer``,
+    ``accepted_variants`` and ``answer_explanation``, none of which are sent.
+    """
+    missing = _clean_terms(missing_terms)
+    strategy_key = "partial" if missing else error_type
+    lines = [
+        f"Question: {question.question_text}",
+        f"Student answer: {answer.strip()}",
+        f"Error type: {strategy_key}",
+    ]
+    if missing:
+        lines.append(f"Ideas the student left out: {', '.join(missing)}")
+    lines.append(HINT_STRATEGY.get(strategy_key, HINT_STRATEGY["logic_error"]))
+    result = client.generate(build_prompt("\n".join(lines), system=SYSTEM_PROMPT), max_tokens=MAX_TOKENS)
     if result.get("error") is not None:
         return ""
     return str(result.get("text", "")).strip()
@@ -88,15 +128,39 @@ def validate_hint(hint: str, question: Any) -> tuple[bool, str]:
     return True, "ok"
 
 
-def hint_pipeline(question: Any, answer: str, error_type: str, client: Any) -> dict:
-    """Generate, validate, retry once, else fall back to the bank's template."""
+def hint_pipeline(
+    question: Any,
+    answer: str,
+    error_type: str,
+    client: Any,
+    *,
+    missing_terms: Optional[Sequence[str]] = None,
+) -> dict:
+    """Generate, validate, retry once, else fall back to a template.
+
+    With ``missing_terms`` the bar is higher: a hint that clears the validator
+    but names none of the omitted ideas is rejected too, because a partial
+    answer needs pointing at the gap. When the model will not do that, the
+    deterministic ``PARTIAL_HINT_TEMPLATE`` does -- and is itself validated,
+    so the partial path can never leak what the model path could not.
+    """
+    missing = _clean_terms(missing_terms)
     rejections: list[str] = []
     for _ in range(2):
-        hint = generate_hint(question, answer, error_type, client)
+        hint = generate_hint(question, answer, error_type, client, missing_terms=missing)
         if not hint:
             break
         ok, reason = validate_hint(hint, question)
-        if ok:
-            return {"hint": hint, "source": "llm", "rejections": rejections}
-        rejections.append(reason)
+        if not ok:
+            rejections.append(reason)
+            continue
+        if missing and not names_a_missing_term(hint, missing):
+            rejections.append("names no missing key term")
+            continue
+        return {"hint": hint, "source": "llm", "rejections": rejections}
+
+    if missing:
+        templated = PARTIAL_HINT_TEMPLATE.format(term=missing[0])
+        if validate_hint(templated, question)[0]:
+            return {"hint": templated, "source": "partial_template", "rejections": rejections}
     return {"hint": question.fallback_hint, "source": "template", "rejections": rejections}
