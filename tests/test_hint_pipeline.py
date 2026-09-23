@@ -117,7 +117,7 @@ class PipelineTests(unittest.TestCase):
 
 
 class PartialStrategyTests(unittest.TestCase):
-    """Case B (key_terms partial) must aim the hint at the omitted idea."""
+    """A partial verdict (from the LLM classifier) must aim the hint at the omitted idea."""
 
     MISSING = ["alive"]
 

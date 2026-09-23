@@ -10,7 +10,11 @@ from __future__ import annotations
 
 import streamlit as st
 
+from socratic_core.cloud_client import API_KEY_NAME, groq_available
+
 from . import state
+
+_NO_KEY = f"Set {API_KEY_NAME} (env var or .streamlit/secrets.toml) to enable Groq."
 
 
 def _sync_backend() -> None:
@@ -19,6 +23,10 @@ def _sync_backend() -> None:
     if choice == st.session_state.sc_backend:
         # Nothing pending: drop a stale tick so the next switch asks again.
         st.session_state.pop("sc_backend_confirm", None)
+        return
+
+    if choice == state.BACKEND_GROQ and not groq_available():
+        st.error(_NO_KEY, icon="🔑")
         return
 
     st.warning(f"Switch to **{choice}**? This restarts the session.", icon="⚠️")
@@ -46,6 +54,18 @@ def render() -> None:
         st.session_state.setdefault("sc_backend_choice", st.session_state.sc_backend)
         st.radio("Backend", state.BACKEND_LABELS, key="sc_backend_choice")
         _sync_backend()
+
+        if st.session_state.sc_backend == state.BACKEND_GROQ:
+            st.caption("Student answers leave the device. Demo latency only.")
+        elif st.session_state.sc_backend == state.BACKEND_LOCAL:
+            available = groq_available()
+            st.checkbox(
+                "Groq fallback on low confidence (off-device)",
+                key="sc_cloud_fallback",
+                disabled=not available,
+                help=None if available else _NO_KEY,
+                on_change=lambda: state.set_cloud_fallback(st.session_state.sc_cloud_fallback),
+            )
 
         st.divider()
 

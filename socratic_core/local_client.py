@@ -23,9 +23,12 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
-DEFAULT_MODEL_PATH = "models/qwen3-4b-instruct-2507-q4_k_m.gguf"
+DEFAULT_MODEL_PATH = "/home/rickt/models/qwen3-4b-instruct-2507-q4_k_m.gguf"
 STOP_SEQUENCES = ("<|im_end|>",)
 TEMPERATURE = 0.2
+# Physical cores on the Ryzen 7 7700X dev box. Measured against 12: 8 was
+# marginally faster on every call (within noise); decode is bandwidth-bound.
+N_THREADS = 8
 
 
 class LocalCPUClient:
@@ -45,7 +48,7 @@ class LocalCPUClient:
         try:
             from llama_cpp import Llama
 
-            self.llm = Llama(model_path=str(path), n_ctx=n_ctx, n_gpu_layers=0, verbose=False)
+            self.llm = Llama(model_path=str(path), n_ctx=n_ctx, n_gpu_layers=0, n_threads=N_THREADS, verbose=False)
         except Exception as e:  # noqa: BLE001 - surfaced via generate(), never raised
             self.setup_error = f"{type(e).__name__}: {e}"
 

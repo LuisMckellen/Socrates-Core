@@ -145,10 +145,11 @@ class TestUISmoke(unittest.TestCase):
                 )
 
     def test_partial_preset_misses_one_key_term(self) -> None:
-        """The partial preset must actually reach the key-terms partial branch.
+        """The partial preset must miss exactly one key term and reach the LLM.
 
-        Asserted against the state machine's own classifier rather than a
-        re-implementation, so the preset is verified to demo the real path.
+        Since Phase 3 a partial lexical match is not a verdict: it falls
+        through to the LLM classifier, which decides partial. Asserted against
+        the state machine's own key-terms check rather than a re-implementation.
         """
         checked = 0
         for question in self.bank:
@@ -161,7 +162,7 @@ class TestUISmoke(unittest.TestCase):
                 question, presets[2]
             )
             with self.subTest(question=question.id):
-                self.assertEqual(verdict, "partial")
+                self.assertIsNone(verdict)  # not Case A -> the LLM classifier decides
                 self.assertEqual(missing, [question.key_terms[0]])
                 self.assertTrue(matched)
                 self.assertFalse(question.is_correct(presets[2]))

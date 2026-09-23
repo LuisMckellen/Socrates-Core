@@ -38,7 +38,7 @@ def update_mastery(mastery: dict, cluster: str, tier: str, correct: bool | str) 
     """Apply the delta for (tier, correct) to ``cluster`` in place and return the dict.
 
     ``correct`` is normally a bool; pass the literal string ``"partial"`` for a
-    Socratic key-terms partial match (see ``state_machine._classify_by_key_terms``).
+    Socratic partial answer. partial is an LLM verdict since Phase 3; delta unchanged.
     """
     try:
         delta = _DELTAS[(tier, correct)]

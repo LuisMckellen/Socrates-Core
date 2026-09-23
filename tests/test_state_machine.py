@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from socratic_core import classifier_behavioral  # noqa: E402
-from socratic_core.classifier_llm import make_classifier_fn  # noqa: E402
+from socratic_core.classifier_llm import make_classifier_fn, make_verify_fn  # noqa: E402
 from socratic_core.mock_client import CLASSIFIER_PROMPT_MARKER, MockInferenceClient  # noqa: E402
 from socratic_core.disengagement import DISENGAGEMENT_TOKENS  # noqa: E402
 from socratic_core.mastery import (  # noqa: E402
@@ -157,13 +157,14 @@ class StateMachineTierTests(unittest.TestCase):
         self.hint.assert_not_called()
 
     def test_socratic_tier_uses_full_pipeline(self):
-        # S_CELL key_terms = ["cell", "division"]: behavioural -> key_terms (A/B/C) -> LLM.
+        # S_CELL key_terms = ["cell", "division"]: behavioural -> key_terms (A/C) -> LLM.
         classified: list[str] = []
         hinted: list[str] = []
+        labels = iter(["partial", "wording_error"])
 
         def fake_llm(question, answer):
             classified.append(answer)
-            return {"error_type": "wording_error", "confidence": 0.9, "reasoning": "test"}
+            return {"error_type": next(labels), "confidence": 0.9, "reasoning": "test"}
 
         def fake_hint(question, answer, error_type):
             hinted.append(error_type)
@@ -174,9 +175,11 @@ class StateMachineTierTests(unittest.TestCase):
         )
         r = s.submit_answer("idk")  # behavioural layer
         self.assertEqual((r.kind, r.error_type, r.error_source), ("hint", "low_effort", "behavioural"))
-        r = s.submit_answer("cells are the unit of life")  # key_terms: "cell" hit, "division" missing -> partial
-        self.assertEqual((r.error_type, r.error_source), ("logic_error", "key_terms"))
-        self.assertEqual(classified, [])  # neither turn so far reached the LLM
+        self.assertEqual(classified, [])  # the behavioural turn never reached the LLM
+        r = s.submit_answer("cells are the unit of life")  # "cell" hit, "division" missing -> LLM says partial
+        self.assertEqual((r.error_type, r.error_source), ("logic_error", "llm"))
+        self.assertEqual(len(classified), 1)
+        self.assertEqual([h for h in s.state.history if h["event"] == "answer"][-1]["verdict"], "partial")
         r = s.submit_answer("the cell")
         self.assertEqual(r.kind, "correct")
         self.assertAlmostEqual(
@@ -189,9 +192,9 @@ class StateMachineTierTests(unittest.TestCase):
         )
         r = s2.submit_answer("the organ system in the body")  # zero key_terms -> LLM layer + hint
         self.assertEqual((r.error_type, r.error_source), ("wording_error", "llm"))
-        self.assertEqual(len(classified), 1)
-        self.assertTrue(classified[0].startswith(NOISE_TOLERANCE_PREFIX))
-        self.assertTrue(classified[0].endswith("the organ system in the body"))
+        self.assertEqual(len(classified), 2)
+        self.assertTrue(classified[1].startswith(NOISE_TOLERANCE_PREFIX))
+        self.assertTrue(classified[1].endswith("the organ system in the body"))
         # Every wrong turn across both sessions reached the hint generator with its layer's verdict.
         self.assertEqual(hinted, ["low_effort", "logic_error", "wording_error"])
         self.assertEqual(r.message, "Is an atom alive on its own?")
@@ -250,42 +253,78 @@ class StateMachineTierTests(unittest.TestCase):
 
     def test_socratic_correct_by_key_terms(self):
         # Not an exact string match, but both key_terms ("cell", "division") are present.
-        s = SocraticSession(self.full, question_ids=["s_001"], classifier_fn=self.llm, hint_fn=self.hint, sessions_dir=self.sessions_dir)
+        s = SocraticSession(
+            self.full, question_ids=["s_001"], classifier_fn=self.llm, hint_fn=self.hint,
+            verify_fn=make_verify_fn(MockInferenceClient()), sessions_dir=self.sessions_dir,
+        )
         r = s.submit_answer("cells form through division of other cells")
         self.assertEqual(r.kind, "correct")
         answer_entry = [h for h in s.state.history if h["event"] == "answer"][0]
         self.assertEqual(answer_entry["kind"], "socratic_correct")
         self.assertEqual(answer_entry["verdict"], "correct")
-        self.assertEqual(answer_entry["error_source"], "key_terms")
+        self.assertEqual(answer_entry["error_source"], "key_terms_verified")
+        self.assertIs(answer_entry["case_a_verified"], True)
         self.assertEqual(set(answer_entry["key_terms_matched"]), {"cell", "division"})
         self.assertEqual(answer_entry["key_terms_missing"], [])
         self.llm.assert_not_called()
 
-    def test_socratic_partial_on_partial_key_terms(self):
-        s = SocraticSession(self.full, question_ids=["s_001"], classifier_fn=self.llm, hint_fn=lambda q, a, e: "hint?", sessions_dir=self.sessions_dir)
-        r = s.submit_answer("cells are the smallest unit")  # "cell" hit, "division" missing
-        self.assertEqual(r.kind, "hint")
-        self.assertEqual(r.error_type, "logic_error")
-        self.assertEqual(r.error_source, "key_terms")
+    # -- Phase 3: partial is an LLM verdict (Case B is gone) ------------------
 
-    def test_socratic_partial_records_missing_key_terms(self):
-        s = SocraticSession(self.full, question_ids=["s_001"], classifier_fn=self.llm, hint_fn=lambda q, a, e: "hint?", sessions_dir=self.sessions_dir)
-        s.submit_answer("cells are the smallest unit")
+    @staticmethod
+    def _partial_llm(question, answer):
+        return {"error_type": "partial", "confidence": 0.9, "reasoning": "half of it"}
+
+    def test_llm_returns_partial_label(self):
+        llm = Mock(side_effect=self._partial_llm)
+        s = SocraticSession(self.full, question_ids=["s_001"], classifier_fn=llm, hint_fn=lambda q, a, e: "hint?", sessions_dir=self.sessions_dir)
+        r = s.submit_answer("cells are the smallest unit")  # "cell" hit, "division" missing -> LLM, not key_terms
+        llm.assert_called_once()
+        self.assertEqual((r.kind, r.error_type, r.error_source), ("hint", "logic_error", "llm"))
         answer_entry = [h for h in s.state.history if h["event"] == "answer"][0]
-        self.assertEqual(answer_entry["verdict"], "partial")
-        self.assertEqual(answer_entry["kind"], "socratic_partial")
-        self.assertEqual(answer_entry["key_terms_matched"], ["cell"])
-        self.assertEqual(answer_entry["key_terms_missing"], ["division"])
+        self.assertEqual((answer_entry["verdict"], answer_entry["kind"]), ("partial", "socratic_partial"))
+        self.assertEqual((answer_entry["key_terms_matched"], answer_entry["key_terms_missing"]), (["cell"], ["division"]))
+        classified = [h for h in s.state.history if h["event"] == "llm_classify"][0]
+        self.assertEqual((classified["llm_label"], classified["error_type"], classified["verdict"]), ("partial", "logic_error", "partial"))
 
-    def test_socratic_partial_skips_llm(self):
-        s = SocraticSession(self.full, question_ids=["s_001"], classifier_fn=self.llm, hint_fn=lambda q, a, e: "hint?", sessions_dir=self.sessions_dir)
-        s.submit_answer("cells are the smallest unit")
-        self.llm.assert_not_called()
-
-    def test_socratic_partial_mastery_delta(self):
-        s = SocraticSession(self.full, question_ids=["s_001"], classifier_fn=self.llm, hint_fn=lambda q, a, e: "hint?", sessions_dir=self.sessions_dir)
+    def test_partial_uses_socratic_partial_delta(self):
+        s = SocraticSession(self.full, question_ids=["s_001"], classifier_fn=self._partial_llm, hint_fn=lambda q, a, e: "hint?", sessions_dir=self.sessions_dir)
         s.submit_answer("cells are the smallest unit")
         self.assertAlmostEqual(s.state.mastery["cell_theory"], INITIAL_MASTERY + SOCRATIC_PARTIAL_DELTA)
+
+    def test_partial_hint_targets_missing_terms(self):
+        seen: list[tuple[str, object]] = []
+
+        def hint(question, answer, error_type, *, missing_terms=None):
+            seen.append((error_type, missing_terms))
+            return "What must the cells do?"
+
+        s = SocraticSession(self.full, question_ids=["s_001"], classifier_fn=self._partial_llm, hint_fn=hint, sessions_dir=self.sessions_dir)
+        s.submit_answer("cells are the smallest unit")
+        self.assertEqual(seen, [("logic_error", ["division"])])
+
+        # Case A verified NO, then the LLM said partial: nothing lexical is
+        # missing, so no missing_terms -> the logic_error hint strategy.
+        seen.clear()
+        s = SocraticSession(
+            self.full, question_ids=["s_001"], classifier_fn=self._partial_llm, hint_fn=hint,
+            verify_fn=lambda q, a: False, sessions_dir=self.sessions_dir,
+        )
+        s.submit_answer("cells form through division of other cells")
+        self.assertEqual(seen, [("logic_error", None)])
+
+    def test_partial_counts_toward_reveal(self):
+        # CORRECTIONS.md #9: a third partial attempt reveals, like any other.
+        s = SocraticSession(self.full, question_ids=["s_001"], classifier_fn=self._partial_llm, hint_fn=lambda q, a, e: "hint?", sessions_dir=self.sessions_dir)
+        kinds = [s.submit_answer("cells are the smallest unit").kind for _ in range(3)]
+        self.assertEqual(kinds, ["hint", "hint", "escalated"])
+        self.assertEqual(s.state.stuck_question_ids, ["s_001"])
+
+    def test_no_case_b_remains(self):
+        source = (ROOT / "socratic_core" / "state_machine.py").read_text(encoding="utf-8")
+        for needle in ('kt_verdict == "partial"', "partial key-term", 'return "partial"', "Case A/B/C"):
+            self.assertNotIn(needle, source)
+        for answer in ("cells are the smallest unit", "cells divide skibidi rizz"):  # partial lexical matches
+            self.assertIsNone(SocraticSession._classify_by_key_terms(self.full.get("s_001"), answer)[0])
 
     def test_socratic_wrong_costs_mastery_every_attempt_clamped_at_floor(self):
         def fake_llm(question, answer):
@@ -349,15 +388,20 @@ class StateMachineTierTests(unittest.TestCase):
 
     # -- Change 6: disengagement logging (Option A: never affects verdict) --
 
+    @staticmethod
+    def _logic_llm(question, answer):
+        return {"error_type": "logic_error", "confidence": 0.9, "reasoning": "test"}
+
     def test_disengagement_flag_set_on_meme_tokens(self):
-        s = SocraticSession(self.full, question_ids=["s_001"], classifier_fn=self.llm, hint_fn=lambda q, a, e: "hint?", sessions_dir=self.sessions_dir)
+        # "cells" hits, "division" missing -> reaches the LLM since Phase 3.
+        s = SocraticSession(self.full, question_ids=["s_001"], classifier_fn=self._logic_llm, hint_fn=lambda q, a, e: "hint?", sessions_dir=self.sessions_dir)
         s.submit_answer("cells divide skibidi rizz")
         answer_entry = [h for h in s.state.history if h["event"] == "answer"][0]
         self.assertTrue(answer_entry["disengagement_flag"])
         self.assertEqual(set(answer_entry["disengagement_tokens"]), {"skibidi", "rizz"})
 
     def test_disengagement_flag_not_set_on_clean_answer(self):
-        s = SocraticSession(self.full, question_ids=["s_001"], classifier_fn=self.llm, hint_fn=lambda q, a, e: "hint?", sessions_dir=self.sessions_dir)
+        s = SocraticSession(self.full, question_ids=["s_001"], classifier_fn=self._logic_llm, hint_fn=lambda q, a, e: "hint?", sessions_dir=self.sessions_dir)
         s.submit_answer("cells divide to form new cells")
         answer_entry = [h for h in s.state.history if h["event"] == "answer"][0]
         self.assertFalse(answer_entry["disengagement_flag"])
@@ -686,13 +730,22 @@ class LLMVerdictTests(unittest.TestCase):
         self.assertIn("banana", classified["raw_output"])
 
     def test_classifier_raw_output_reaches_the_log(self):
-        text = "LABEL: partial\nCONFIDENCE: 0.9\nREASONING: half"
+        # "partial" is a valid label since Phase 3, so an out-of-set one is used here.
+        text = "LABEL: halfway\nCONFIDENCE: 0.9\nREASONING: half"
         s = self._session(make_classifier_fn(_ScriptedClient(text)))
         r = s.submit_answer(self.NATURAL)
         self.assertEqual(r.error_type, "logic_error")
         classified = self._events(s, "llm_classify")[-1]
         self.assertEqual(classified["raw_output"], text)
         self.assertEqual(classified["verdict"], "wrong")
+
+    def test_label_partial_line_is_a_partial_verdict(self):
+        s = self._session(make_classifier_fn(_ScriptedClient("LABEL: partial\nCONFIDENCE: 0.9\nREASONING: half")))
+        r = s.submit_answer(self.NATURAL)
+        self.assertEqual((r.kind, r.error_type, r.error_source), ("hint", "logic_error", "llm"))
+        answer = self._events(s, "answer")[-1]
+        self.assertEqual((answer["verdict"], answer["kind"]), ("partial", "socratic_partial"))
+        self.assertEqual(self.hints, ["logic_error"])
 
     def test_noise_prefix_does_not_make_answers_correct(self):
         # The prefix ends in "present and correct." and rides inside every answer.
@@ -714,15 +767,18 @@ class LLMVerdictTests(unittest.TestCase):
 
     def test_key_terms_case_a_turn_result_unchanged(self):
         s = self._session(Mock(side_effect=AssertionError("LLM reached on Case A")))
+        s.verify_fn = make_verify_fn(MockInferenceClient())
         r = s.submit_answer("pre-existing cells undergo division to heal the wound")
         self.assertEqual((r.kind, r.error_type, r.error_source), ("correct", None, None))
         answer = self._events(s, "answer")[-1]
         self.assertEqual(
             list(answer),
             ["ts", "event", "question_id", "tier", "answer", "attempt", "correct", "verdict", "kind",
-             "error_source", "key_terms_matched", "key_terms_missing", "disengagement_flag", "disengagement_tokens"],
+             "error_source", "key_terms_matched", "key_terms_missing", "disengagement_flag", "disengagement_tokens",
+             "case_a_verified"],
         )
-        self.assertEqual(answer["error_source"], "key_terms")
+        self.assertEqual(answer["error_source"], "key_terms_verified")
+        self.assertIs(answer["case_a_verified"], True)
 
 
 if __name__ == "__main__":

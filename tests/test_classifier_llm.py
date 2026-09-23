@@ -14,17 +14,25 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+import tempfile  # noqa: E402
+from unittest.mock import patch  # noqa: E402
+
+from socratic_core import classifier_llm  # noqa: E402
 from socratic_core.classifier_llm import (  # noqa: E402
+    MAX_CONTEXT_TOKENS,
     SYSTEM_PROMPT,
-    _SEED_EXAMPLES,
     build_classifier_prompt,
+    build_classifier_prompt_with_dropped,
     classify_llm,
+    estimate_tokens,
     few_shot_examples,
+    make_classifier_fn,
     parse_classifier_output,
 )
 from socratic_core.mock_client import CLASSIFIER_PROMPT_MARKER, MockInferenceClient  # noqa: E402
 from socratic_core.noise import NOISE_TOLERANCE_PREFIX  # noqa: E402
-from socratic_core.question_bank import load_question_bank  # noqa: E402
+from socratic_core.question_bank import Misconception, load_question_bank  # noqa: E402
+from socratic_core.state_machine import SocraticSession  # noqa: E402
 
 BANK = load_question_bank(ROOT / "question_bank.json")
 Q1 = BANK.get("s_cell_theory_L1")
@@ -47,7 +55,12 @@ class _ScriptedClient(MockInferenceClient):
 
 
 class ClassifierLLMTests(unittest.TestCase):
-    # -- three-way labels via the mock -------------------------------------------
+    # -- four-way labels via the mock --------------------------------------------
+
+    def test_clear_partial_returns_partial(self):
+        r = classify_llm("this is a partial answer", Q1, MockInferenceClient())
+        self.assertEqual(r["error_type"], "partial")
+        self.assertGreaterEqual(r["confidence"], 0.7)
 
     def test_clear_correct_returns_correct(self):
         r = classify_llm("this is a correct answer", Q1, MockInferenceClient())
@@ -93,11 +106,11 @@ class ClassifierLLMTests(unittest.TestCase):
         self.assertEqual(r["raw_output"], "asdf qwerty 12345 ???")
 
     def test_out_of_set_label_fails_closed_with_raw_output(self):
-        text = "LABEL: partial\nCONFIDENCE: 0.95\nREASONING: Half of it is there."
+        text = "LABEL: halfway\nCONFIDENCE: 0.95\nREASONING: Half of it is there."
         r = classify_llm("the organ", Q1, _ScriptedClient(text))
         self.assertEqual(r["error_type"], "logic_error")
         self.assertEqual(r["confidence"], 0.0)
-        self.assertEqual(r["reasoning"], "unknown label 'partial'")
+        self.assertEqual(r["reasoning"], "unknown label 'halfway'")
         self.assertEqual(r["raw_output"], text)
 
     def test_incorrect_on_label_line_is_not_correct(self):
@@ -120,6 +133,15 @@ class ClassifierLLMTests(unittest.TestCase):
     def test_free_text_error_label_still_recovered(self):
         self.assertEqual(parse_classifier_output("I'd call it a wording_error.")["error_type"], "wording_error")
 
+    def test_partial_only_from_label_line(self):
+        self.assertEqual(parse_classifier_output("LABEL: partial\nCONFIDENCE: 0.9")["error_type"], "partial")
+        self.assertEqual(parse_classifier_output("LABEL: **Partial**\nCONFIDENCE: 0.9")["error_type"], "partial")
+        # Free text never yields partial: it is a verdict, not a recoverable error label.
+        self.assertIsNone(parse_classifier_output("The answer is partial. CONFIDENCE: 0.9"))
+        self.assertEqual(parse_classifier_output("partial, so logic_error")["error_type"], "logic_error")
+        r = classify_llm("the organ", Q1, _ScriptedClient("LABEL: partial\nCONFIDENCE: 0.5"))
+        self.assertEqual(r["error_type"], "logic_error")  # low confidence fails closed like any label
+
     def test_noise_prefix_correct_does_not_leak_into_label(self):
         # NOISE_TOLERANCE_PREFIX ends in "present and correct." -- echoed back by
         # the model, it must not turn a logic_error LABEL into correct...
@@ -134,8 +156,18 @@ class ClassifierLLMTests(unittest.TestCase):
 
     # -- prompt ----------------------------------------------------------------
 
-    def test_system_prompt_three_way_and_guard_lines(self):
-        for label in ("correct", "wording_error", "logic_error"):
+    def test_4way_classifier_label_set(self):
+        self.assertEqual(classifier_llm._LABELS, ("correct", "partial", "wording_error", "logic_error"))
+        self.assertEqual(classifier_llm._ERROR_LABELS, ("wording_error", "logic_error"))
+        self.assertIn("LABEL: <correct, partial, wording_error or logic_error>", SYSTEM_PROMPT)
+        self.assertIn(
+            "  partial       - the answer states part of the correct mechanism but is "
+            "incomplete, or gives a correct fragment without the full reasoning.",
+            SYSTEM_PROMPT,
+        )
+
+    def test_system_prompt_four_way_and_guard_lines(self):
+        for label in ("correct", "partial", "wording_error", "logic_error"):
             self.assertIn(f"  {label}", SYSTEM_PROMPT)
         self.assertIn("the mechanism is stated accurately, even in everyday words", SYSTEM_PROMPT)
         self.assertNotIn("imprecise", SYSTEM_PROMPT)
@@ -151,56 +183,118 @@ class ClassifierLLMTests(unittest.TestCase):
         )
         self.assertTrue(SYSTEM_PROMPT.startswith(CLASSIFIER_PROMPT_MARKER))
 
-    def test_global_correct_anchors_present(self):
-        anchors = [ex[1] for ex in _SEED_EXAMPLES if ex[2] == "correct"]
-        self.assertEqual(
-            anchors,
-            [
-                "Pre-existing cells divide to replace damaged tissue",
-                "The body makes more of itself after injury by cells dividing",
-                "New cells come from old cells splitting",
-            ],
-        )
-        self.assertEqual(len(_SEED_EXAMPLES), 12)  # 9 original error rows + 3 anchors
-
-    def test_few_shot_order_anchors_natural_then_misconceptions(self):
+    def test_few_shot_order_natural_then_misconceptions(self):
         q = dataclasses.replace(Q1, natural_correct_example="Old cells split to patch up the wound")
         rows = few_shot_examples(q)
-        answers = [r[1] for r in rows]
-        natural_at = answers.index("Old cells split to patch up the wound")
-        last_anchor_at = answers.index("New cells come from old cells splitting")
-        misc_at = [answers.index(m.wrong_answer) for m in Q1.misconceptions]
-        self.assertLess(last_anchor_at, natural_at)
-        self.assertEqual(misc_at, list(range(natural_at + 1, natural_at + 1 + len(Q1.misconceptions))))
-        self.assertEqual(rows[natural_at][0], Q1.question_text)
-        self.assertEqual(rows[natural_at][2], "correct")
-        for m, i in zip(Q1.misconceptions, misc_at):
-            self.assertEqual(rows[i], (Q1.question_text, m.wrong_answer, m.error_type, m.explanation))
+        self.assertEqual(rows[0][:3], (Q1.question_text, "Old cells split to patch up the wound", "correct"))
+        self.assertEqual(rows[1][2], "partial")  # the key-term partial example sits in between
+        self.assertEqual(
+            rows[2:],
+            [(Q1.question_text, m.wrong_answer, m.error_type, m.explanation) for m in Q1.misconceptions],
+        )
+
+    def test_partial_example_in_prompt(self):
+        # Q1 key_terms = ["division", "pre-existing"]: the partial row names only the first.
+        prompt = build_classifier_prompt("x", Q1)
+        block = (
+            f"Question: {Q1.question_text}\nStudent answer: It involves division.\nLABEL: partial\n"
+            "CONFIDENCE: 0.95\nREASONING: Names division but leaves out pre-existing."
+        )
+        self.assertIn(block, prompt)
+        natural_at = prompt.index(f"Student answer: {Q1.natural_correct_example}")
+        self.assertLess(natural_at, prompt.index(block))
+        self.assertLess(prompt.index(block), prompt.index(f"Student answer: {Q1.misconceptions[0].wrong_answer}"))
+        _, dropped = build_classifier_prompt_with_dropped("x", Q1, budget=1)
+        self.assertEqual(dropped[:2], ["natural_correct", "partial_example"])
+        # One key term: nothing to leave out. No key terms: no partial row at all.
+        one = dataclasses.replace(Q1, key_terms=("division",))
+        self.assertIn("REASONING: Names division but not how it works.", build_classifier_prompt("x", one))
+        self.assertNotIn("LABEL: partial", build_classifier_prompt("x", dataclasses.replace(Q1, key_terms=())))
 
     def test_natural_correct_example_in_prompt_only_when_set(self):
         example = "Old cells split to patch up the wound"
         with_it = build_classifier_prompt("x", dataclasses.replace(Q1, natural_correct_example=example))
         self.assertIn(f"Student answer: {example}\nLABEL: correct", with_it)
-        self.assertEqual(Q1.natural_correct_example, "")
-        without = build_classifier_prompt("x", Q1)
+        self.assertEqual(with_it.count("LABEL: correct"), 1)
+        without = build_classifier_prompt("x", dataclasses.replace(Q1, natural_correct_example=""))
         self.assertNotIn(example, without)
-        self.assertEqual(without.count("LABEL: correct"), 3)  # the global anchors only
+        self.assertEqual(without.count("LABEL: correct"), 0)  # no global examples
 
     def test_question_misconceptions_in_prompt_verbatim(self):
         prompt = build_classifier_prompt("x", Q1)
         for m in Q1.misconceptions:
             self.assertIn(f"Student answer: {m.wrong_answer}\nLABEL: {m.error_type}", prompt)
 
-    def test_drop_rule_applies_to_seeds_only(self):
-        seed_question = _SEED_EXAMPLES[0][0]
-        q = dataclasses.replace(Q1, question_text=seed_question)
-        rows = few_shot_examples(q)
-        seed_rows = [ex for ex in _SEED_EXAMPLES if ex[0] == seed_question]
-        self.assertTrue(seed_rows)
-        for ex in seed_rows:
-            self.assertNotIn(ex, rows)
-        for m in Q1.misconceptions:  # the question's own rows survive
-            self.assertIn((seed_question, m.wrong_answer, m.error_type, m.explanation), rows)
+    # -- context budget ----------------------------------------------------------
+
+    @staticmethod
+    def _crowded(n: int = 40):
+        """Q1 with a natural example and ``n`` long synthetic misconceptions."""
+        miscs = tuple(
+            Misconception(f"synthetic wrong answer {i} " + "padding " * 30, "logic_error", f"why {i} is wrong")
+            for i in range(n)
+        )
+        return dataclasses.replace(Q1, natural_correct_example="Old cells split to patch up the wound", misconceptions=miscs)
+
+    def test_context_budget_drops_misconceptions_over_limit(self):
+        q = self._crowded()
+        prompt, dropped = build_classifier_prompt_with_dropped("x", q)
+        self.assertLessEqual(estimate_tokens(prompt), MAX_CONTEXT_TOKENS)
+        self.assertTrue(dropped)
+        # Kept misconceptions are a prefix m_0..m_{k-1}; the dropped ones are the rest, in order.
+        k = len(q.misconceptions) - len(dropped)
+        self.assertGreater(k, 0)
+        self.assertEqual(dropped, [f"m_{i}" for i in range(k, len(q.misconceptions))])
+        self.assertIn(f"synthetic wrong answer {k - 1} ", prompt)
+        self.assertNotIn(f"synthetic wrong answer {k} ", prompt)
+        # System prompt, question and answer always survive.
+        self.assertIn(SYSTEM_PROMPT, prompt)
+        self.assertTrue(prompt.rstrip().endswith("Student answer: x<|im_end|>\n<|im_start|>assistant"))
+
+    def test_context_budget_preserves_natural_correct_example(self):
+        q = self._crowded()
+        # Exactly enough for the natural and partial examples, not for the first misconception.
+        budget = estimate_tokens(build_classifier_prompt("x", dataclasses.replace(q, misconceptions=())))
+        prompt, dropped = build_classifier_prompt_with_dropped("x", q, budget=budget)
+        self.assertIn("Student answer: Old cells split to patch up the wound\nLABEL: correct", prompt)
+        self.assertIn("Student answer: It involves division.\nLABEL: partial", prompt)
+        self.assertNotIn("natural_correct", dropped)
+        self.assertNotIn("partial_example", dropped)
+        self.assertEqual(dropped, [f"m_{i}" for i in range(len(q.misconceptions))])
+        # Soft cap: below even the base prompt, system + question + answer are still sent.
+        prompt, dropped = build_classifier_prompt_with_dropped("x", q, budget=1)
+        self.assertIn("Student answer: x", prompt)
+        self.assertEqual(dropped[0], "natural_correct")
+
+    def test_dropped_examples_logged(self):
+        sessions = self.enterContext(tempfile.TemporaryDirectory())
+
+        def run():
+            s = SocraticSession(
+                BANK, question_ids=["s_cell_theory_L1"], classifier_fn=make_classifier_fn(MockInferenceClient()),
+                hint_fn=lambda q, a, e: "hint?", sessions_dir=sessions,
+            )
+            s.submit_answer("The body makes more of itself when you get hurt")
+            return [h for h in s.state.history if h["event"] == "llm_classify"][-1]
+
+        self.assertEqual(run()["dropped_examples"], [])
+        # Budget = the prompt with the natural and partial examples only, for the answer the state machine sends.
+        sent = f"{NOISE_TOLERANCE_PREFIX} The body makes more of itself when you get hurt"
+        budget = estimate_tokens(build_classifier_prompt(sent, dataclasses.replace(Q1, misconceptions=())))
+        with patch.object(classifier_llm, "MAX_CONTEXT_TOKENS", budget):
+            self.assertEqual(run()["dropped_examples"], [f"m_{i}" for i in range(len(Q1.misconceptions))])
+
+    def test_live_bank_under_budget_unchanged(self):
+        # Every live socratic prompt fits: budgeted == unbudgeted, nothing dropped.
+        for q in BANK:
+            if q.tier != "socratic":
+                continue
+            with self.subTest(question=q.id):
+                answer = f"{NOISE_TOLERANCE_PREFIX} some student answer"
+                prompt, dropped = build_classifier_prompt_with_dropped(answer, q)
+                self.assertEqual(dropped, [])
+                self.assertEqual(prompt, build_classifier_prompt(answer, q, budget=10**9))
+                self.assertLess(estimate_tokens(prompt), MAX_CONTEXT_TOKENS)
 
     def test_mock_call_log_records_invocation(self):
         mock = MockInferenceClient()

@@ -27,3 +27,7 @@ classification layer resolved the last turn and how long the model took.
 ```
 python -m pytest tests/
 ```
+
+## Roadmap
+
+- LlamaRAMCache deferred; best-case 3.7s on retries only; not the dominant cost.

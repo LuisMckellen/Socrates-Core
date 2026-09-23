@@ -19,12 +19,15 @@ layers in a fixed order and stops at the first one that decides:
     1. behavioural: give-up keyword, word_count < min_words, or an off-topic
        answer carrying a disengagement token -> low_effort (0 ms).
        Off-topic on its own does not decide; it falls through to layer 2.
-    2. key_terms (Case A/B/C, ``_classify_by_key_terms``):
+    2. key_terms (Case A/C, ``_classify_by_key_terms``):
        all of the question's key_terms present (allowing synonyms,
-       ``synonyms.expand_terms``)   -> correct           (0 ms)
-       some present, some missing   -> partial            (0 ms)
-       none present                 -> continue to layer 3
-    3. LLM classifier                -> correct / wording / logic (NPU),
+       ``synonyms.expand_terms``)   -> Case A: ``verify_fn`` YES/NO check;
+                                       YES (or no verify_fn) -> correct,
+                                       NO -> continue to layer 3
+       any key term missing         -> Case C: continue to layer 3
+       (A lexical partial match no longer decides anything: whether an
+       answer is partial is a semantic call, so the LLM makes it.)
+    3. LLM classifier                -> correct / partial / wording / logic,
                                         mapped to a verdict by ``LLM_VERDICTS``
 
 then hint generation (LLM + pure-Python validator). The bank's misconceptions
@@ -46,19 +49,36 @@ exercised with no model at all:
 
     classifier_fn(question, answer)             -> Mapping with
                                                    error_type / confidence / reasoning
-                                                   (error_type: correct, wording_error
-                                                   or logic_error; optional raw_output)
+                                                   (error_type: correct, partial,
+                                                   wording_error or logic_error;
+                                                   optional raw_output)
     hint_fn(question, answer, error_type)       -> hint string
+    verify_fn(question, answer)                 -> bool (Case A check; optional)
 
 The classifier's label is turned into a verdict only through ``LLM_VERDICTS``:
 ``correct`` scores and advances exactly like a key_terms Case A answer (no
-hint); ``wording_error`` and ``logic_error`` are both a wrong verdict, the
-label surviving as ``error_type``. Any other label fails closed to
-``logic_error``.
+hint); ``partial`` scores ``SOCRATIC_PARTIAL_DELTA`` and gets a hint aimed at
+the key terms the answer lacks (logged with ``error_type="logic_error"``:
+partial is a verdict, not an error type); ``wording_error`` and
+``logic_error`` are both a wrong verdict, the label surviving as
+``error_type``. Any other label fails closed to ``logic_error``.
 
 If either is ``None`` a conservative offline default is used (``logic_error``
 and the bank's ``fallback_hint``). ``run_session.py`` wires in the real
 ``classifier_llm`` and ``hint_pipeline`` implementations.
+
+``verify_fn`` works differently: with none injected, Case A is not verified
+and scores as before (``error_source="key_terms"``, ``case_a_verified=None``).
+With one, a YES scores ``error_source="key_terms_verified"`` and a NO sends
+the answer on to the LLM classifier, logged ``case_a_verified=False``. A
+raising ``verify_fn`` fails open (treated as YES). Every answer event carries
+``case_a_verified``: True / False on those two paths, None everywhere else.
+
+An optional ``fallback_classifier_fn`` (same shape; the UI wires Groq here,
+off by default) is tried when the classifier raises or returns a confidence
+below ``classifier_llm.CONFIDENCE_THRESHOLD``. Its result replaces the local
+one only if it clears that same threshold; the turn is then logged with
+``error_source="llm_groq_fallback"`` and ``cloud_fallback_used=True``.
 
 Persistence: one JSON file per session in ``sessions/`` (or
 ``SOCRATIC_SESSIONS_DIR``), rewritten after every turn so a crash mid-session
@@ -78,6 +98,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Optional, Sequence
 
 from . import classifier_behavioral
+from .classifier_llm import CONFIDENCE_THRESHOLD
 from .disengagement import flag_disengagement
 from .escalation import choose_escalation
 from .mastery import should_escalate, update_mastery
@@ -98,13 +119,19 @@ DEFAULT_MAX_ATTEMPTS = 3
 # a verdict. wording_error is an error_type, not a verdict: it scores wrong.
 LLM_VERDICTS: dict[str, tuple[str, str]] = {
     "correct": ("correct", "socratic_correct"),
+    "partial": ("partial", "socratic_partial"),
     "logic_error": ("wrong", "socratic_wrong"),
     "wording_error": ("wrong", "socratic_wrong"),
 }
 LLM_FALLBACK_LABEL = "logic_error"
+# error_type logged for a partial verdict: "partial" is not one of
+# VALID_ERROR_TYPES. The hint is steered by missing_terms instead.
+PARTIAL_ERROR_TYPE = "logic_error"
+CLOUD_FALLBACK_SOURCE = "llm_groq_fallback"
 
 ClassifierFn = Callable[[Question, str], Mapping[str, Any]]
 HintFn = Callable[[Question, str, ErrorType], str]
+VerifyFn = Callable[[Question, str], bool]
 
 
 # -- data ---------------------------------------------------------------------
@@ -115,9 +142,10 @@ class Classification:
     """Normalised result of whichever layer decided the error type."""
 
     error_type: ErrorType
-    source: str  # "bank" | "llm" | "key_terms" | "behavioural" (see question_bank error_source enum)
+    source: str  # "llm" | "llm_groq_fallback" | "behavioural" (key_terms verdicts skip Classification)
     confidence: float = 1.0
     reasoning: str = ""
+    cloud_fallback_used: bool = False
 
 
 @dataclass
@@ -195,6 +223,13 @@ def default_hint(question: Question, answer: str, error_type: ErrorType) -> str:
 # -- the machine --------------------------------------------------------------
 
 
+def _confidence(raw: Mapping[str, Any]) -> float:
+    try:
+        return float(raw.get("confidence", 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _hint_fn_accepts_missing_terms(fn: HintFn) -> bool:
     """Whether ``fn`` can be handed the partial path's missing key terms.
 
@@ -227,6 +262,8 @@ class SocraticSession:
         max_attempts: int = DEFAULT_MAX_ATTEMPTS,
         autosave: bool = True,
         bypass_bank_lookup: bool = False,
+        fallback_classifier_fn: Optional[ClassifierFn] = None,
+        verify_fn: Optional[VerifyFn] = None,
     ) -> None:
         # A session walks the filters; Socratic entries are reached only by
         # escalation. A bank with no filters is walked in full (legacy shape).
@@ -242,6 +279,10 @@ class SocraticSession:
 
         self.bank = bank
         self.classifier_fn: ClassifierFn = classifier_fn or default_classifier
+        # None = no cloud fallback. Mutable: the UI toggles it mid-session.
+        self.fallback_classifier_fn: Optional[ClassifierFn] = fallback_classifier_fn
+        # None = Case A is not verified (see module docstring).
+        self.verify_fn: Optional[VerifyFn] = verify_fn
         self.hint_fn: HintFn = hint_fn or default_hint
         self._hint_fn_takes_missing_terms = _hint_fn_accepts_missing_terms(self.hint_fn)
         self.sessions_dir = Path(sessions_dir) if sessions_dir else default_sessions_dir()
@@ -296,6 +337,7 @@ class SocraticSession:
                 kind="correct" if correct else "wrong",
                 disengagement_flag=disengaged,
                 disengagement_tokens=disengagement_tokens,
+                case_a_verified=None,
             )
             update_mastery(st.mastery, question.cluster, question.tier, correct)
             if correct:
@@ -336,6 +378,7 @@ class SocraticSession:
                 key_terms_missing=[],
                 disengagement_flag=disengaged,
                 disengagement_tokens=disengagement_tokens,
+                case_a_verified=None,
             )
             st.solved_question_ids.append(question.id)
             update_mastery(st.mastery, question.cluster, question.tier, True)
@@ -351,65 +394,33 @@ class SocraticSession:
         matched: list[str] = []
         missing: list[str] = list(question.key_terms)
         if reason is None:
-            # Layer 2: key_terms Case A/B/C, before the LLM ever runs.
+            # Layer 2: key_terms Case A/C, before the LLM ever runs.
             kt_verdict, matched, missing = self._classify_by_key_terms(question, answer)
 
+        # None: Case A never reached, or no verify_fn. False: verification said
+        # NO and the answer falls through to the LLM classifier below.
+        case_a_verified: Optional[bool] = None
         if kt_verdict == "correct":
-            return self._socratic_correct(
-                question,
-                answer,
-                error_source="key_terms",
-                matched=matched,
-                missing=missing,
-                disengaged=disengaged,
-                disengagement_tokens=disengagement_tokens,
-            )
-
-        if kt_verdict == "partial":
-            # error_type stays logic_error: it is the label that goes to the
-            # log and to TurnResult, and "partial" is a verdict, not one of
-            # VALID_ERROR_TYPES. The hint layer is steered by missing_terms
-            # instead, which selects HINT_STRATEGY["partial"] downstream.
-            cls = Classification("logic_error", "key_terms", 1.0, "partial key-term match")
-            update_mastery(st.mastery, question.cluster, "socratic", "partial")
-            st.last_error_type = cls.error_type
-            self._log(
-                "answer",
-                question,
-                tier=question.tier,
-                answer=answer,
-                attempt=st.attempt_count,
-                correct=False,
-                verdict="partial",
-                kind="socratic_partial",
-                error_type=cls.error_type,
-                error_source=cls.source,
-                key_terms_matched=matched,
-                key_terms_missing=missing,
-                disengagement_flag=disengaged,
-                disengagement_tokens=disengagement_tokens,
-            )
-            hint = self._hint(question, answer, cls.error_type, missing_terms=missing)
-            self._log("hint", question, attempt=st.attempt_count, error_type=cls.error_type, hint=hint)
-            self._log("mastery_snapshot", question, mastery=dict(st.mastery))
-            self._maybe_save()
-            return TurnResult(
-                kind="hint",
-                question_id=question.id,
-                attempt=st.attempt_count,
-                message=hint,
-                error_type=cls.error_type,
-                error_source=cls.source,
-                session_finished=False,
-                next_question=question,
-            )
+            case_a_verified = self._verify_case_a(question, answer)
+            if case_a_verified is not False:
+                return self._socratic_correct(
+                    question,
+                    answer,
+                    error_source="key_terms" if case_a_verified is None else "key_terms_verified",
+                    matched=matched,
+                    missing=missing,
+                    disengaged=disengaged,
+                    disengagement_tokens=disengagement_tokens,
+                    case_a_verified=case_a_verified,
+                )
 
         if reason is not None:
             cls = Classification("low_effort", "behavioural", 1.0, reason)
             verdict, kind = "low_effort", "low_effort"
         else:
-            # Layer 3: zero key_terms matched (Case C) -> the LLM classifier,
-            # whose label becomes a verdict only through LLM_VERDICTS.
+            # Layer 3: not every key term present (Case C), or Case A
+            # verification said NO -> the LLM classifier, whose label becomes
+            # a verdict only through LLM_VERDICTS.
             cls, verdict, kind = self._classify_llm(question, answer)
             if verdict == "correct":
                 return self._socratic_correct(
@@ -424,6 +435,8 @@ class SocraticSession:
                     turn_error_source=cls.source,
                     confidence=cls.confidence,
                     reasoning=cls.reasoning,
+                    cloud_fallback_used=cls.cloud_fallback_used,
+                    case_a_verified=case_a_verified,
                 )
 
         st.last_error_type = cls.error_type
@@ -444,18 +457,27 @@ class SocraticSession:
             key_terms_missing=missing,
             disengagement_flag=disengaged,
             disengagement_tokens=disengagement_tokens,
+            cloud_fallback_used=cls.cloud_fallback_used,
+            case_a_verified=case_a_verified,
         )
-        # Every wrong attempt costs mastery immediately; low_effort does not.
+        # Every wrong or partial attempt costs mastery immediately; low_effort does not.
         if verdict == "wrong":
             update_mastery(st.mastery, question.cluster, question.tier, False)
+        elif verdict == "partial":
+            update_mastery(st.mastery, question.cluster, question.tier, "partial")
 
+        # Partial answers count toward max_attempts like any other (CORRECTIONS.md #9).
         if st.attempt_count >= st.max_attempts:
             reveal = self._reveal_text(question)
             st.stuck_question_ids.append(question.id)
             self._log("escalation", question, attempt=st.attempt_count, reveal=reveal)
             return self._advance("escalated", question, reveal, cls)
 
-        hint = self._hint(question, answer, cls.error_type)
+        # A partial hint aims at the key terms the answer lacks. If there are
+        # none (Case A matched every term, verification said NO, then the LLM
+        # said partial), hint_pipeline gets no missing_terms and falls back to
+        # the error_type strategy, i.e. logic_error: nothing lexical to point at.
+        hint = self._hint(question, answer, cls.error_type, missing_terms=missing if verdict == "partial" else None)
         self._log("hint", question, attempt=st.attempt_count, error_type=cls.error_type, hint=hint)
         self._log("mastery_snapshot", question, mastery=dict(st.mastery))
         self._maybe_save()
@@ -485,12 +507,12 @@ class SocraticSession:
 
     @staticmethod
     def _classify_by_key_terms(question: Question, answer: str) -> tuple[Optional[str], list[str], list[str]]:
-        """Case A/B/C over ``question.key_terms`` (synonym-expanded), 0 ms.
+        """Case A/C over ``question.key_terms`` (synonym-expanded), 0 ms.
 
         Returns ``(verdict, matched, missing)``:
-            "correct" -> every key term present (directly or via a synonym)
-            "partial" -> at least one present, at least one missing
-            None      -> none present; caller falls through to the LLM
+            "correct" -> every key term present (directly or via a synonym): Case A
+            None      -> at least one missing; caller falls through to the LLM
+        ``missing`` still feeds the hint when the LLM calls the answer partial.
         """
         haystack = f" {normalize(answer)} "
         matched: list[str] = []
@@ -502,12 +524,20 @@ class SocraticSession:
                 missing.append(term)
         if not missing:
             return "correct", matched, missing
-        if matched:
-            return "partial", matched, missing
         return None, matched, missing
 
+    def _verify_case_a(self, question: Question, answer: str) -> Optional[bool]:
+        """None without a verify_fn; otherwise its verdict. Raising fails open."""
+        if self.verify_fn is None:
+            return None
+        try:
+            return bool(self.verify_fn(question, answer))
+        except Exception as e:  # noqa: BLE001 - fail open: Case A already matched every key term
+            self._log("classifier_error", question, error=repr(e), stage="case_a_verify")
+            return True
+
     def _classify_llm(self, question: Question, answer: str) -> tuple[Classification, str, str]:
-        """The LLM classifier, reached only when key_terms matched nothing (Case C).
+        """The LLM classifier: a key term is missing (Case C), or Case A failed verification.
 
         Returns ``(classification, verdict, kind)``, the last two looked up in
         ``LLM_VERDICTS``. An unknown label, or any failure, degrades to
@@ -515,26 +545,56 @@ class SocraticSession:
         correct. The noise-tolerance prefix travels inside the ``answer`` text
         handed to ``classifier_fn`` because the prompt itself is built inside
         classifier_llm.py.
+
+        With a ``fallback_classifier_fn`` set, a local failure or a local
+        confidence below ``CONFIDENCE_THRESHOLD`` is retried there; the retry
+        wins only if it clears the same threshold, otherwise local stands.
         """
         t0 = time.perf_counter()
+        prefixed = f"{NOISE_TOLERANCE_PREFIX} {answer}"
+        raw: Optional[Mapping[str, Any]] = None
+        local_error: Optional[Exception] = None
         try:
-            raw = self.classifier_fn(question, f"{NOISE_TOLERANCE_PREFIX} {answer}")
+            raw = self.classifier_fn(question, prefixed)
         except Exception as e:  # noqa: BLE001 - deliberate: never crash the loop
+            local_error = e
             self._log("classifier_error", question, error=repr(e))
+
+        cloud_attempted = cloud_used = False
+        if self.fallback_classifier_fn is not None and (raw is None or _confidence(raw) < CONFIDENCE_THRESHOLD):
+            cloud_attempted = True
+            try:
+                cloud: Optional[Mapping[str, Any]] = self.fallback_classifier_fn(question, prefixed)
+            except Exception as e:  # noqa: BLE001 - a failed fallback keeps the local result
+                cloud = None
+                self._log("classifier_error", question, error=repr(e), backend="cloud_fallback")
+            if (
+                cloud is not None
+                and str(cloud.get("error_type", "")) in LLM_VERDICTS
+                and _confidence(cloud) >= CONFIDENCE_THRESHOLD
+            ):
+                raw, cloud_used = cloud, True
+
+        if raw is None:
             verdict, kind = LLM_VERDICTS[LLM_FALLBACK_LABEL]
-            return Classification(LLM_FALLBACK_LABEL, "llm", 0.0, f"classifier failed: {e!r}"), verdict, kind
+            return Classification(LLM_FALLBACK_LABEL, "llm", 0.0, f"classifier failed: {local_error!r}"), verdict, kind
         elapsed_ms = (time.perf_counter() - t0) * 1000
 
         llm_label = str(raw.get("error_type", ""))
         label = llm_label if llm_label in LLM_VERDICTS else LLM_FALLBACK_LABEL
         verdict, kind = LLM_VERDICTS[label]
         cls = Classification(
-            label,  # type: ignore[arg-type]
-            "llm",
-            float(raw.get("confidence", 0.0)),
+            PARTIAL_ERROR_TYPE if label == "partial" else label,  # type: ignore[arg-type]
+            CLOUD_FALLBACK_SOURCE if cloud_used else "llm",
+            _confidence(raw),
             str(raw.get("reasoning", "")),
+            cloud_fallback_used=cloud_used,
         )
         extra: dict[str, Any] = {}
+        if cloud_attempted:
+            extra["cloud_fallback_attempted"] = True
+        if "dropped_examples" in raw:
+            extra["dropped_examples"] = list(raw["dropped_examples"])
         if "raw_output" in raw:
             extra["raw_output"] = str(raw["raw_output"])
         elif label != llm_label:

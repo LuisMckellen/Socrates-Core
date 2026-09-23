@@ -103,12 +103,12 @@ class RunSessionTests(unittest.TestCase):
 
     def test_default_client_is_mock(self):
         # No --question-id: run_session defaults to the bank's first id,
-        # which is the f_001 filter ("Who named ... cells ... ?").
+        # which is the f_001 filter ("What is the smallest ... unit ... ?").
         with (
             patch.object(run_session, "MockInferenceClient", side_effect=MockInferenceClient) as mock_cls,
             patch.object(run_session, "InferenceClient") as npu_cls,
         ):
-            summary = run_session.main([], input_fn=lambda _, it=iter(["Robert Hooke"]): next(it))
+            summary = run_session.main([], input_fn=lambda _, it=iter(["The cell"]): next(it))
         mock_cls.assert_called_once()
         npu_cls.assert_not_called()
         self.assertEqual(summary["solved_question_ids"], ["f_001"])

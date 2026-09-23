@@ -316,9 +316,11 @@ class StateMachineTests(unittest.TestCase):
         s = self._session(classifier_fn=fake_llm)
         r = s.submit_answer("idk I didn't study this")  # keyword -> LLM must NOT be called
         self.assertEqual((r.error_type, r.error_source), ("low_effort", "behavioural"))
-        r = s.submit_answer("an atom is a cell")  # key_terms partial ("cell" hit, "alive" missing) -> LLM must NOT be called
-        self.assertEqual((r.error_type, r.error_source), ("logic_error", "key_terms"))
         self.assertEqual(calls, [])
+        r = s.submit_answer("an atom is a cell")  # "cell" hit, "alive" missing: no Case B since Phase 3 -> LLM
+        self.assertEqual((r.error_type, r.error_source), ("wording_error", "llm"))
+        self.assertEqual(len(calls), 1)
+        calls.clear()
 
         s = self._session(classifier_fn=fake_llm, question_ids=[Q2.id])
         r = s.submit_answer("atom")  # 1 word < min_words=2 -> LLM must NOT be called

@@ -20,7 +20,8 @@ from typing import Any, Iterable, Optional, Sequence
 
 import streamlit as st
 
-from socratic_core.classifier_llm import make_classifier_fn
+from socratic_core.classifier_llm import make_classifier_fn, make_verify_fn
+from socratic_core.cloud_client import GroqClient, groq_available
 from socratic_core.hint_pipeline import hint_pipeline
 from socratic_core.local_client import LocalCPUClient
 from socratic_core.mastery import INITIAL_MASTERY
@@ -29,8 +30,10 @@ from socratic_core.question_bank import QuestionBank, load_question_bank
 from socratic_core.state_machine import SocraticSession
 
 BACKEND_MOCK = "Mock (instant)"
-BACKEND_LOCAL = "Local CPU (~2s)"
-BACKEND_LABELS: tuple[str, ...] = (BACKEND_MOCK, BACKEND_LOCAL)
+BACKEND_LOCAL = "Local CPU (~6.5s)"
+# Off-device: demo latency only, never the default (CORRECTIONS.md #8).
+BACKEND_GROQ = "Groq cloud (off-device)"
+BACKEND_LABELS: tuple[str, ...] = (BACKEND_MOCK, BACKEND_LOCAL, BACKEND_GROQ)
 
 ANSWER_EVENT = "answer"
 # The only entries a turn logs before its own ``answer`` entry.
@@ -41,6 +44,7 @@ _RESOLVED_AT: dict[str, str] = {
     "behavioural": "layer 1 · behavioural",
     "key_terms": "layer 2 · key terms",
     "llm": "layer 3 · LLM classifier",
+    "llm_groq_fallback": "layer 3 · LLM classifier (Groq fallback)",
 }
 _RESOLVED_AT_BANK = "bank exact match"
 
@@ -74,10 +78,32 @@ def make_client(backend_label: str) -> Any:
     """The generate()-shaped client for a sidebar backend label.
 
     ``InferenceClient`` (NPU) is deliberately absent: it only runs on ARM64.
+    ``GroqClient`` raises ``GroqConfigError`` without a key; the sidebar
+    checks ``groq_available()`` before offering the switch.
     """
     if backend_label == BACKEND_LOCAL:
         return LocalCPUClient()
+    if backend_label == BACKEND_GROQ:
+        return GroqClient()
     return MockInferenceClient()
+
+
+def cloud_fallback_fn(enabled: bool, backend_label: str) -> Optional[Any]:
+    """Groq as the low-confidence classifier fallback, or None.
+
+    Only behind the local backend, only when the sidebar opts in, and only
+    with a key configured. Anything else means no fallback.
+    """
+    if not enabled or backend_label != BACKEND_LOCAL or not groq_available():
+        return None
+    return make_classifier_fn(get_client(BACKEND_GROQ))
+
+
+def set_cloud_fallback(enabled: bool) -> None:
+    """Sidebar callback: attach/detach the fallback on the live session."""
+    st.session_state.sc_session.fallback_classifier_fn = cloud_fallback_fn(
+        enabled, st.session_state.sc_backend
+    )
 
 
 def build_session(
@@ -93,6 +119,7 @@ def build_session(
         bank,
         question_ids=question_ids_for_clusters(bank, clusters),
         classifier_fn=make_classifier_fn(client),
+        verify_fn=make_verify_fn(client),
        hint_fn=lambda q, a, e, *, missing_terms=None: hint_pipeline(
     q, a, e, client, missing_terms=missing_terms
 )["hint"],
@@ -230,6 +257,7 @@ def rebuild_session() -> None:
     st.session_state.sc_session = build_session(
         get_bank(), st.session_state.sc_clusters, st.session_state.sc_backend
     )
+    set_cloud_fallback(bool(st.session_state.get("sc_cloud_fallback", False)))
     st.session_state.sc_last_result = None
     st.session_state.sc_turn_count = 0
     st.session_state.sc_answer_draft = ""

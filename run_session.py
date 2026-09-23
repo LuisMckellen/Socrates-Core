@@ -24,7 +24,7 @@ from typing import Callable, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from socratic_core.classifier_llm import make_classifier_fn  # noqa: E402
+from socratic_core.classifier_llm import make_classifier_fn, make_verify_fn  # noqa: E402
 from socratic_core.hint_pipeline import hint_pipeline  # noqa: E402
 from socratic_core.inference_client import InferenceClient  # noqa: E402
 from socratic_core.local_client import LocalCPUClient  # noqa: E402
@@ -56,6 +56,7 @@ def main(argv: Optional[list[str]] = None, input_fn: Callable[[str], str] = inpu
             bank,
             question_ids=args.question_id or bank.ids()[:1],
             classifier_fn=make_classifier_fn(client),
+            verify_fn=make_verify_fn(client),
             hint_fn=lambda q, a, e: hint_pipeline(q, a, e, client)["hint"],
         )
     except KeyError as e:

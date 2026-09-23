@@ -5,13 +5,13 @@
       "tier": "filter",
       "cluster": "cell_theory",
       "topic": "Cell Theory",
-      "question_text": "Who named microscopic structures \"cells\" in 1665 after observing cork?",
-      "correct_answer": "Robert Hooke",
-      "accepted_variants": ["Robert Hooke", "Hooke"],
+      "question_text": "What is the smallest structural and functional unit of all living organisms?",
+      "correct_answer": "The cell",
+      "accepted_variants": ["The cell", "Cell", "Cells"],
       "key_terms": [],
       "min_words": 1,
       "misconceptions": [],
-      "answer_explanation": "",
+      "answer_explanation": "Robert Hooke named the structures he observed in cork 'cells' in 1665.",
       "fallback_hint": ""
     },
     {
@@ -19,13 +19,13 @@
       "tier": "filter",
       "cluster": "cell_theory",
       "topic": "Cell Theory",
-      "question_text": "Which scientist stated in 1855 that all new cells arise from pre-existing cells?",
-      "correct_answer": "Rudolf Virchow",
-      "accepted_variants": ["Rudolf Virchow", "Virchow", "Rudolf Ludwig Karl Virchow"],
+      "question_text": "According to cell theory, where do all newly formed cells originate from?",
+      "correct_answer": "Pre-existing cells",
+      "accepted_variants": ["Pre-existing cells", "Existing cells", "From pre-existing cells"],
       "key_terms": [],
       "min_words": 1,
       "misconceptions": [],
-      "answer_explanation": "",
+      "answer_explanation": "Rudolf Virchow stated in 1855 that all cells arise from pre-existing cells.",
       "fallback_hint": ""
     },
     {
@@ -42,6 +42,7 @@
         "New cells required for tissue expansion and healing are produced when pre-existing cells undergo division."
       ],
       "key_terms": ["division", "pre-existing"],
+      "natural_correct_example": "Cells already in the vody divide to fill in the damaged area when u get hurt.",
       "min_words": 5,
       "misconceptions": [
         {
@@ -72,6 +73,7 @@
         "Isolated organelles fail to perform independent metabolism necessary to sustain life without cellular support."
       ],
       "key_terms": ["organelles", "metabolism"],
+      "natural_correct_example": "Organelles can't survive on their own — only whole cells run all the life processes.",
       "min_words": 5,
       "misconceptions": [
         {
@@ -130,6 +132,7 @@
         "Cytosolic ribosomes can perform simultaneous translation on nascent mRNA during ongoing gene transcription."
       ],
       "key_terms": ["translation", "transcription"],
+      "natural_correct_example": "Without a nucleus in the way, ribosomes start translating the mRNA before transcription even finishes.",
       "min_words": 5,
       "misconceptions": [
         {
@@ -160,6 +163,7 @@
         "Structural compartmentalization isolates biochemical pathways locally, allowing metabolic efficiency that is impossible through unassisted cellular diffusion alone."
       ],
       "key_terms": ["compartmentalization", "diffusion"],
+      "natural_correct_example": "Internal membranes let a big cell keep reactions concentrated instead of relying on slow diffusion.",
       "min_words": 5,
       "misconceptions": [
         {
@@ -219,6 +223,7 @@
         "Free ribosomes generate proteins for the cytosol, whereas rough ER ribosomes manufacture proteins designated for membrane transport or secretion."
       ],
       "key_terms": ["secretion", "cytosol"],
+      "natural_correct_example": "Rough ER ribosomes put proteins into the lumen for export; free ribosomes keep them in the cytosol.",
       "min_words": 5,
       "misconceptions": [
         {
@@ -250,6 +255,7 @@
         "Enclosing the enzymes keeps them in an acidic environment and prevents them from digesting cytoplasmic components."
       ],
       "key_terms": ["acidic", "digest"],
+      "natural_correct_example": "Lysosome enzymes only work in acidic conditions and would digest the cytoplasm if let loose.",
       "min_words": 5,
       "misconceptions": [
         {
@@ -309,6 +315,7 @@
         "The leading strand is synthesized continuously, but the lagging strand requires discontinuous creation of short fragments."
       ],
       "key_terms": ["leading", "lagging", "fragments"],
+      "natural_correct_example": "Leading strand is copied straight through; lagging strand gets made in short backward pieces.",
       "min_words": 5,
       "misconceptions": [
         {
@@ -340,6 +347,7 @@
         "Each new DNA helix holds one parental strand, which acts as a template for synthesizing the matching new strand."
       ],
       "key_terms": ["parental", "strand", "template"],
+      "natural_correct_example": "Each new DNA molecule keeps one old strand as a template, so the code is preserved exactly.",
       "min_words": 5,
       "misconceptions": [
         {
