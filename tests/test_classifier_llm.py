@@ -197,8 +197,9 @@ class ClassifierLLMTests(unittest.TestCase):
         # Q1 key_terms = ["division", "pre-existing"]: the partial row names only the first.
         prompt = build_classifier_prompt("x", Q1)
         block = (
-            f"Question: {Q1.question_text}\nStudent answer: It involves division.\nLABEL: partial\n"
-            "CONFIDENCE: 0.95\nREASONING: Names division but leaves out pre-existing."
+            f"Example partial_example:\nQuestion: {Q1.question_text}\nStudent answer: It involves division.\n"
+            "LABEL: partial\nCONFIDENCE: 0.95\nMATCHED: partial_example\n"
+            "REASONING: Names division but leaves out pre-existing."
         )
         self.assertIn(block, prompt)
         natural_at = prompt.index(f"Student answer: {Q1.natural_correct_example}")
@@ -295,6 +296,65 @@ class ClassifierLLMTests(unittest.TestCase):
                 self.assertEqual(dropped, [])
                 self.assertEqual(prompt, build_classifier_prompt(answer, q, budget=10**9))
                 self.assertLess(estimate_tokens(prompt), MAX_CONTEXT_TOKENS)
+
+    # -- MATCHED ------------------------------------------------------------------
+
+    def test_parser_extracts_matched(self):
+        for text, expected in (
+            ("LABEL: logic_error\nCONFIDENCE: 0.9\nMATCHED: m_1\nREASONING: x", "m_1"),
+            ("LABEL: correct\nCONFIDENCE: 0.9\nMATCHED: **natural_correct**", "natural_correct"),
+            ("LABEL: partial\nCONFIDENCE: 0.9\nmatched: Partial_Example", "partial_example"),
+            ("LABEL: wording_error\nCONFIDENCE: 0.9\nMATCHED: none", "none"),
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(parse_classifier_output(text)["matched_bank_id"], expected)
+        text = "LABEL: logic_error\nCONFIDENCE: 0.9\nMATCHED: m_1\nREASONING: Cells swell."
+        r = classify_llm("x", Q1, _ScriptedClient(text))
+        self.assertEqual((r["error_type"], r["matched_bank_id"]), ("logic_error", "m_1"))
+
+    def test_parser_missing_matched_defaults_to_none(self):
+        self.assertEqual(parse_classifier_output("LABEL: logic_error\nCONFIDENCE: 0.9")["matched_bank_id"], "none")
+        for garbage in ("MATCHED: the_second_one", "MATCHED: ???", "MATCHED:"):
+            with self.subTest(garbage=garbage):
+                parsed = parse_classifier_output(f"LABEL: logic_error\nCONFIDENCE: 0.9\n{garbage}")
+                self.assertEqual(parsed["matched_bank_id"], "none")
+        # Every classify_llm result carries it, fallbacks included.
+        self.assertEqual(classify_llm("x", Q1, MockInferenceClient())["matched_bank_id"], "none")
+        self.assertEqual(classify_llm("x", Q1, MockInferenceClient(fail_mode=True))["matched_bank_id"], "none")
+        self.assertEqual(classify_llm("x", Q1, _GarbageClient())["matched_bank_id"], "none")
+        # An ID-shaped value that was not in this prompt is not a match.
+        absent = f"m_{len(Q1.misconceptions)}"
+        r = classify_llm("x", Q1, _ScriptedClient(f"LABEL: logic_error\nCONFIDENCE: 0.9\nMATCHED: {absent}"))
+        self.assertEqual(r["matched_bank_id"], "none")
+        # Nor is one the context budget dropped.
+        r = classify_llm("x", Q1, _ScriptedClient("LABEL: logic_error\nCONFIDENCE: 0.9\nMATCHED: m_0"), budget=1)
+        self.assertEqual(r["matched_bank_id"], "none")
+
+    def test_classifier_prompt_includes_example_ids(self):
+        prompt = build_classifier_prompt("x", Q1)
+        self.assertIn("MATCHED: <example ID or none>", SYSTEM_PROMPT)
+        # MATCHED sits before REASONING so MAX_TOKENS never cuts it off.
+        self.assertLess(SYSTEM_PROMPT.index("MATCHED:"), SYSTEM_PROMPT.index("REASONING:"))
+        self.assertIn(
+            f"Example natural_correct:\nQuestion: {Q1.question_text}\n"
+            f"Student answer: {Q1.natural_correct_example}\n",
+            prompt,
+        )
+        self.assertIn("MATCHED: natural_correct\n", prompt)
+        for i, m in enumerate(Q1.misconceptions):
+            with self.subTest(example=f"m_{i}"):
+                self.assertIn(f"Example m_{i}:\nQuestion: {Q1.question_text}\nStudent answer: {m.wrong_answer}\n", prompt)
+                self.assertIn(f"LABEL: {m.error_type}\nCONFIDENCE: 0.95\nMATCHED: m_{i}\n", prompt)
+
+    def test_classifier_prompt_includes_partial_example_id(self):
+        prompt = build_classifier_prompt("x", Q1)
+        self.assertIn(
+            f"Example partial_example:\nQuestion: {Q1.question_text}\nStudent answer: It involves division.\n"
+            "LABEL: partial\nCONFIDENCE: 0.95\nMATCHED: partial_example\n",
+            prompt,
+        )
+        no_terms = build_classifier_prompt("x", dataclasses.replace(Q1, key_terms=()))
+        self.assertNotIn("partial_example", no_terms)
 
     def test_mock_call_log_records_invocation(self):
         mock = MockInferenceClient()

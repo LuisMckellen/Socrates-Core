@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -775,10 +776,116 @@ class LLMVerdictTests(unittest.TestCase):
             list(answer),
             ["ts", "event", "question_id", "tier", "answer", "attempt", "correct", "verdict", "kind",
              "error_source", "key_terms_matched", "key_terms_missing", "disengagement_flag", "disengagement_tokens",
-             "case_a_verified"],
+             "hint_text", "attempt_number", "elapsed_ms", "matched_bank_id", "case_a_verified",
+             "cloud_fallback_used"],
         )
         self.assertEqual(answer["error_source"], "key_terms_verified")
         self.assertIs(answer["case_a_verified"], True)
+        self.assertIsNone(answer["matched_bank_id"])  # verify is not the classifier
+        self.assertIs(answer["cloud_fallback_used"], False)
+        self.assertEqual(answer["attempt_number"], 1)
+        self.assertEqual(answer["hint_text"], "")
+        self.assertIsInstance(answer["elapsed_ms"], int)
+        self.assertGreaterEqual(answer["elapsed_ms"], 0)
+
+    # -- Phase 4 answer-event fields --------------------------------------------
+
+    CASE_A = "pre-existing cells undergo division to heal the wound"
+    PHASE4_FIELDS = ("hint_text", "attempt_number", "elapsed_ms", "matched_bank_id", "case_a_verified",
+                     "cloud_fallback_used")
+
+    def test_log_includes_hint_text(self):
+        # Every path: low_effort, LLM wrong, Case A (no LLM), and a filter.
+        s = self._session(make_classifier_fn(MockInferenceClient()))
+        s.submit_answer("No idea")
+        s.submit_answer("The damaged tissue just swells up bigger over time")
+        s.submit_answer(self.CASE_A)
+        filters = SocraticSession(self.bank, sessions_dir=self.sessions_dir)
+        filters.submit_answer("banana")
+        for answer in self._events(s, "answer") + self._events(filters, "answer"):
+            with self.subTest(verdict=answer["verdict"], tier=answer["tier"]):
+                for key in self.PHASE4_FIELDS:
+                    self.assertIn(key, answer)
+                self.assertIsInstance(answer["hint_text"], str)
+
+    def test_log_hint_text_empty_on_correct(self):
+        llm = self._session(lambda q, a: {"error_type": "correct", "confidence": 0.9, "reasoning": "ok"})
+        llm.submit_answer(self.NATURAL)
+        exact = self._session(Mock(side_effect=AssertionError("LLM reached on exact match")))
+        exact.submit_answer(self.q.correct_answer)
+        case_a = self._session(Mock(side_effect=AssertionError("LLM reached on Case A")))
+        case_a.submit_answer(self.CASE_A)
+        for s in (llm, exact, case_a):
+            answer = self._events(s, "answer")[-1]
+            with self.subTest(error_source=answer.get("error_source")):
+                self.assertEqual(answer["verdict"], "correct")
+                self.assertEqual(answer["hint_text"], "")
+
+    def test_log_hint_text_populated_on_wrong(self):
+        s = self._session(make_classifier_fn(MockInferenceClient()))
+        r = s.submit_answer("The damaged tissue just swells up bigger over time")
+        answer = self._events(s, "answer")[-1]
+        self.assertEqual(answer["verdict"], "wrong")
+        self.assertEqual(answer["hint_text"], "What must the cells do?")
+        # The same hint the separate hint event and the TurnResult carry.
+        self.assertEqual(answer["hint_text"], self._events(s, "hint")[-1]["hint"])
+        self.assertEqual(answer["hint_text"], r.message)
+        # Written through to the entry in history: it survives the autosave.
+        saved = json.loads(s.log_path.read_text(encoding="utf-8"))
+        self.assertEqual([h for h in saved["history"] if h["event"] == "answer"][-1]["hint_text"], r.message)
+
+    def test_attempt_number_increments(self):
+        s = self._session(make_classifier_fn(MockInferenceClient()))
+        kinds = [s.submit_answer("The damaged tissue just swells up bigger over time").kind for _ in range(3)]
+        self.assertEqual(kinds, ["hint", "hint", "escalated"])
+        answers = self._events(s, "answer")
+        self.assertEqual([a["attempt_number"] for a in answers], [1, 2, 3])
+        self.assertEqual([a["attempt_number"] for a in answers], [a["attempt"] for a in answers])
+        # The escalated turn attaches a reveal, not a hint.
+        self.assertEqual([bool(a["hint_text"]) for a in answers], [True, True, False])
+
+    def test_elapsed_ms_is_positive_int(self):
+        # Non-negative int on every path (a turn with no model call rounds to 0)...
+        s = self._session(make_classifier_fn(MockInferenceClient()))
+        s.submit_answer("No idea")
+        s.submit_answer("The damaged tissue just swells up bigger over time")
+        s.submit_answer(self.CASE_A)
+        filters = SocraticSession(self.bank, sessions_dir=self.sessions_dir)
+        filters.submit_answer(filters.current_question().correct_answer)
+        for answer in self._events(s, "answer") + self._events(filters, "answer"):
+            with self.subTest(verdict=answer["verdict"], tier=answer["tier"]):
+                self.assertIsInstance(answer["elapsed_ms"], int)
+                self.assertGreaterEqual(answer["elapsed_ms"], 0)
+
+        # ...and strictly positive when the LLM path takes real time.
+        def slow(question, answer):
+            time.sleep(0.005)
+            return {"error_type": "logic_error", "confidence": 0.9, "reasoning": "slow"}
+
+        slow_session = self._session(slow)
+        slow_session.submit_answer(self.NATURAL)
+        elapsed = self._events(slow_session, "answer")[-1]["elapsed_ms"]
+        self.assertIsInstance(elapsed, int)
+        self.assertGreater(elapsed, 0)
+
+    def test_matched_bank_id_three_states(self):
+        def matched(classifier_fn, answer):
+            s = self._session(classifier_fn)
+            s.submit_answer(answer)
+            return self._events(s, "answer")[-1]["matched_bank_id"]
+
+        never = Mock(side_effect=AssertionError("LLM reached"))
+        # LLM never invoked -> None.
+        self.assertIsNone(matched(never, self.CASE_A))
+        self.assertIsNone(matched(never, "No idea"))
+        self.assertIsNone(matched(never, self.q.correct_answer))
+        # Invoked or attempted, no example matched -> "none".
+        self.assertEqual(matched(make_classifier_fn(MockInferenceClient()), self.NATURAL), "none")
+        self.assertEqual(matched(Mock(side_effect=RuntimeError("boom")), self.NATURAL), "none")
+        self.assertEqual(matched(None, self.NATURAL), "none")  # offline default_classifier
+        # Invoked and matched -> the example ID.
+        text = "LABEL: logic_error\nCONFIDENCE: 0.9\nMATCHED: m_0\nREASONING: swelling"
+        self.assertEqual(matched(make_classifier_fn(_ScriptedClient(text)), self.NATURAL), "m_0")
 
 
 if __name__ == "__main__":

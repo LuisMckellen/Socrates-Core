@@ -1,8 +1,8 @@
 """debug_panel.py — what the pipeline did on the last turn.
 
 Reads ``session.state.history`` only. Every field is optional, so every read
-goes through ``.get()``: a filter turn logs no error_type, a key-terms verdict
-logs no latency, and only an escalating filter logs a target question.
+goes through ``.get()``: a filter turn logs no error_type, only a model call
+logs a per-call latency, and only an escalating filter logs a target question.
 """
 
 from __future__ import annotations
@@ -28,21 +28,20 @@ def _render_last_turn(history: list[dict]) -> None:
     left, middle, right = st.columns(3)
     left.metric("error_type", str(answer.get("error_type") or "—"))
     middle.metric("error_source", str(error_source or "—"))
-    right.metric("llm_called", "yes" if error_source == "llm" else "no")
+    right.metric("llm_called", "yes" if state.llm_called(error_source) else "no")
 
     st.markdown(f"**Resolved at** · {state.resolved_at(error_source)}")
 
+    st.markdown(f"**elapsed_ms** · {answer.get('elapsed_ms')} ms")
     classify_ms = classify.get("elapsed_ms")
     hint_ms = hint.get("elapsed_ms")
-    if classify_ms is None and hint_ms is None:
-        st.markdown("**elapsed_ms** · 0 (no model call)")
-    else:
-        parts = []
-        if classify_ms is not None:
-            parts.append(f"classify {classify_ms} ms")
-        if hint_ms is not None:
-            parts.append(f"hint {hint_ms} ms")
-        st.markdown(f"**elapsed_ms** · {' · '.join(parts)}")
+    parts = []
+    if classify_ms is not None:
+        parts.append(f"classify {classify_ms} ms")
+    if hint_ms is not None:
+        parts.append(f"hint {hint_ms} ms")
+    if parts:
+        st.markdown(f"**model calls** · {' · '.join(parts)}")
 
     matched = answer.get("key_terms_matched")
     missing = answer.get("key_terms_missing")

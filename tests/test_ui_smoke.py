@@ -21,6 +21,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from socratic_core.classifier_llm import make_classifier_fn, make_verify_fn  # noqa: E402
 from socratic_core.mock_client import MockInferenceClient  # noqa: E402
 from socratic_core.question_bank import load_question_bank  # noqa: E402
 from socratic_core.state_machine import ENV_SESSIONS_DIR, SocraticSession  # noqa: E402
@@ -228,6 +229,51 @@ class TestUISmoke(unittest.TestCase):
         # A second turn relabels the card.
         session.submit_answer("Rudolf Virchow")
         self.assertEqual(student_view.graded_answer(session), "Rudolf Virchow")
+
+    def test_llm_called_true_on_groq_fallback(self) -> None:
+        self.assertTrue(state.llm_called("llm_groq_fallback"))
+        self.assertTrue(state.llm_called("llm"))
+        for source in (None, "", "behavioural", "key_terms", "key_terms_verified"):
+            with self.subTest(source=source):
+                self.assertFalse(state.llm_called(source))
+
+    def test_resolved_at_handles_key_terms_verified(self) -> None:
+        self.assertEqual(state.resolved_at("key_terms_verified"), "layer 2 · key terms (verified)")
+        self.assertNotEqual(state.resolved_at("key_terms_verified"), "key_terms_verified")  # not the raw passthrough
+        self.assertEqual(state.resolved_at("key_terms"), "layer 2 · key terms")
+
+    def test_answer_rows_phase4_columns(self) -> None:
+        long_hint = "x" * 60
+        history = [
+            {"event": "answer", "attempt_number": 1, "matched_bank_id": None, "elapsed_ms": 0, "hint_text": ""},
+            {"event": "answer", "attempt_number": 2, "matched_bank_id": "none", "elapsed_ms": 812, "hint_text": long_hint},
+            {"event": "answer", "attempt_number": 1, "matched_bank_id": "m_1", "elapsed_ms": 9, "hint_text": "Short?"},
+            {"event": "answer"},  # a log from before these fields existed
+        ]
+        rows = state.answer_rows(history)
+        self.assertEqual([r["matched_bank_id"] for r in rows], ["—", "no match", "m_1", "—"])
+        self.assertEqual([r["attempt_number"] for r in rows], [1, 2, 1, None])
+        self.assertEqual([r["elapsed_ms"] for r in rows], [0, 812, 9, None])
+        self.assertEqual([r["hint_text"] for r in rows], ["", "x" * 40 + "…", "Short?", ""])
+
+    def test_partial_preset_is_partial_in_mock_mode(self) -> None:
+        """The mock backend classifies each partial preset, verbatim, as partial."""
+        client = state.make_client(state.BACKEND_MOCK, self.bank)
+        for question in self.bank:
+            if question.tier != "socratic":
+                continue
+            presets = student_view.build_presets(question)
+            if len(presets) < 4:
+                continue
+            session = SocraticSession(
+                self.bank, question_ids=[question.id], classifier_fn=make_classifier_fn(client),
+                verify_fn=make_verify_fn(client),
+            )
+            session.submit_answer(presets[2])
+            with self.subTest(question=question.id):
+                self.assertEqual(state.last_answer_event(session.state.history)["verdict"], "partial")
+        # The override is exact-string only: the preset text itself is unchanged.
+        self.assertNotIn("partial", " ".join(student_view.mock_label_overrides(self.bank)).lower())
 
 
 if __name__ == "__main__":

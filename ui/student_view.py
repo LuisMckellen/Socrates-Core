@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 from html import escape
-from typing import Optional
+from typing import Iterable, Optional
 
 import streamlit as st
 
@@ -40,7 +40,8 @@ def _drop_first_key_term(question: Question) -> Optional[str]:
     """The canonical variant minus its first key term: a *partial* answer.
 
     Produces a response that still carries the question's other key terms, so
-    ``_classify_by_key_terms`` lands on "partial" rather than correct or wrong.
+    ``_classify_by_key_terms`` finds a term missing and the answer is left to
+    the LLM partial label rather than Case A.
 
     The removal takes the whole word, not the bare substring: key term "gene"
     appears in the canonical text as "genes", and cutting the substring would
@@ -64,7 +65,7 @@ def build_presets(question: Question) -> list[str]:
 
     Filters classify nothing, so they only get give-up and correct. A Socratic
     question additionally gets its first misconception (reaches the LLM
-    classifier) and a partial answer (resolved by the key-terms layer).
+    classifier) and a partial answer (resolved as LLM partial).
     """
     presets = [PRESET_GIVE_UP]
     if question.tier == "socratic":
@@ -76,6 +77,21 @@ def build_presets(question: Question) -> list[str]:
             presets.append(partial)
     presets.append(question.correct_answer)
     return presets
+
+
+def mock_label_overrides(questions: Iterable[Question]) -> dict[str, str]:
+    """Partial preset -> ``"partial"`` for ``MockInferenceClient``.
+
+    The preset text carries no steering word (it is shown as-is on every
+    backend), so the mock is told by exact string instead.
+    """
+    overrides: dict[str, str] = {}
+    for question in questions:
+        if question.tier == "socratic":
+            partial = _drop_first_key_term(question)
+            if partial:
+                overrides[partial] = "partial"
+    return overrides
 
 
 def _label(text: str) -> str:

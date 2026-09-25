@@ -20,7 +20,7 @@ from typing import Any, Iterable, Optional, Sequence
 
 import streamlit as st
 
-from socratic_core.classifier_llm import make_classifier_fn, make_verify_fn
+from socratic_core.classifier_llm import MATCHED_NONE, make_classifier_fn, make_verify_fn
 from socratic_core.cloud_client import GroqClient, groq_available
 from socratic_core.hint_pipeline import hint_pipeline
 from socratic_core.local_client import LocalCPUClient
@@ -30,7 +30,7 @@ from socratic_core.question_bank import QuestionBank, load_question_bank
 from socratic_core.state_machine import SocraticSession
 
 BACKEND_MOCK = "Mock (instant)"
-BACKEND_LOCAL = "Local CPU (~6.5s)"
+BACKEND_LOCAL = "Local CPU (~7s)"
 # Off-device: demo latency only, never the default (CORRECTIONS.md #8).
 BACKEND_GROQ = "Groq cloud (off-device)"
 BACKEND_LABELS: tuple[str, ...] = (BACKEND_MOCK, BACKEND_LOCAL, BACKEND_GROQ)
@@ -43,10 +43,18 @@ _PRE_ANSWER_EVENTS = frozenset({"llm_classify", "classifier_error"})
 _RESOLVED_AT: dict[str, str] = {
     "behavioural": "layer 1 · behavioural",
     "key_terms": "layer 2 · key terms",
+    "key_terms_verified": "layer 2 · key terms (verified)",
     "llm": "layer 3 · LLM classifier",
     "llm_groq_fallback": "layer 3 · LLM classifier (Groq fallback)",
 }
 _RESOLVED_AT_BANK = "bank exact match"
+# error_source values meaning the LLM classifier decided the turn.
+_LLM_SOURCES = frozenset({"llm", "llm_groq_fallback"})
+
+# Turn-table display.
+_NO_LLM = "—"
+_NO_MATCH = "no match"
+_HINT_PREVIEW_CHARS = 40
 
 
 # -- bank / clusters ----------------------------------------------------------
@@ -74,18 +82,23 @@ def question_ids_for_clusters(bank: QuestionBank, clusters: Iterable[str]) -> li
 # -- backends -----------------------------------------------------------------
 
 
-def make_client(backend_label: str) -> Any:
+def make_client(backend_label: str, bank: Optional[QuestionBank] = None) -> Any:
     """The generate()-shaped client for a sidebar backend label.
 
     ``InferenceClient`` (NPU) is deliberately absent: it only runs on ARM64.
     ``GroqClient`` raises ``GroqConfigError`` without a key; the sidebar
-    checks ``groq_available()`` before offering the switch.
+    checks ``groq_available()`` before offering the switch. With ``bank``,
+    the mock classifies that bank's partial demo presets as partial.
     """
     if backend_label == BACKEND_LOCAL:
         return LocalCPUClient()
     if backend_label == BACKEND_GROQ:
         return GroqClient()
-    return MockInferenceClient()
+    if bank is None:
+        return MockInferenceClient()
+    from .student_view import mock_label_overrides  # deferred: student_view imports this module
+
+    return MockInferenceClient(label_overrides=mock_label_overrides(bank))
 
 
 def cloud_fallback_fn(enabled: bool, backend_label: str) -> Optional[Any]:
@@ -169,6 +182,28 @@ def resolved_at(error_source: Optional[str]) -> str:
     return _RESOLVED_AT.get(error_source, error_source)
 
 
+def llm_called(error_source: Optional[str]) -> bool:
+    """Whether the LLM classifier (local or the Groq fallback) decided the turn."""
+    return error_source in _LLM_SOURCES
+
+
+def matched_label(matched_bank_id: Optional[str]) -> str:
+    """Turn-table text: "—" (LLM not invoked), "no match", or the example ID."""
+    if matched_bank_id is None:
+        return _NO_LLM
+    if matched_bank_id == MATCHED_NONE:
+        return _NO_MATCH
+    return matched_bank_id
+
+
+def hint_preview(hint_text: Optional[str]) -> str:
+    """First ``_HINT_PREVIEW_CHARS`` characters, with "…" only if cut."""
+    text = hint_text or ""
+    if len(text) <= _HINT_PREVIEW_CHARS:
+        return text
+    return text[:_HINT_PREVIEW_CHARS] + "…"
+
+
 def mastery_snapshots(history: Sequence[dict]) -> list[dict]:
     return [e["mastery"] for e in history if isinstance(e.get("mastery"), dict)]
 
@@ -196,26 +231,25 @@ def mastery_delta(
 
 
 def answer_rows(history: Sequence[dict]) -> list[dict]:
-    """One row per answered turn, with the LLM latency that preceded it."""
+    """One row per answered turn. ``elapsed_ms`` is turn entry to verdict."""
     rows: list[dict] = []
-    pending_ms: Optional[float] = None
     for entry in history:
-        event = entry.get("event")
-        if event == "llm_classify":
-            pending_ms = entry.get("elapsed_ms")
-        elif event == ANSWER_EVENT:
-            rows.append(
-                {
-                    "turn": len(rows) + 1,
-                    "question_id": entry.get("question_id"),
-                    "tier": entry.get("tier"),
-                    "verdict": entry.get("verdict"),
-                    "error_type": entry.get("error_type"),
-                    "error_source": entry.get("error_source"),
-                    "elapsed_ms": pending_ms,
-                }
-            )
-            pending_ms = None
+        if entry.get("event") != ANSWER_EVENT:
+            continue
+        rows.append(
+            {
+                "turn": len(rows) + 1,
+                "question_id": entry.get("question_id"),
+                "tier": entry.get("tier"),
+                "attempt_number": entry.get("attempt_number"),
+                "verdict": entry.get("verdict"),
+                "error_type": entry.get("error_type"),
+                "error_source": entry.get("error_source"),
+                "matched_bank_id": matched_label(entry.get("matched_bank_id")),
+                "elapsed_ms": entry.get("elapsed_ms"),
+                "hint_text": hint_preview(entry.get("hint_text")),
+            }
+        )
     return rows
 
 
@@ -229,7 +263,7 @@ def get_bank() -> QuestionBank:
 
 @st.cache_resource(show_spinner="Loading backend…")
 def get_client(backend_label: str) -> Any:
-    return make_client(backend_label)
+    return make_client(backend_label, get_bank())
 
 
 def init_state() -> None:

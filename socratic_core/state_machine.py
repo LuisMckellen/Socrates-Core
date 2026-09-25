@@ -80,6 +80,12 @@ below ``classifier_llm.CONFIDENCE_THRESHOLD``. Its result replaces the local
 one only if it clears that same threshold; the turn is then logged with
 ``error_source="llm_groq_fallback"`` and ``cloud_fallback_used=True``.
 
+Every answer event, on every path, also carries ``hint_text`` (the hint
+attached to this turn's result, "" if none; it repeats the ``hint`` event's
+payload so one answer row is self-contained), ``attempt_number`` (1-based),
+``elapsed_ms`` (int, turn entry to verdict), ``matched_bank_id`` (see
+``MatchedBankId``), ``case_a_verified`` and ``cloud_fallback_used``.
+
 Persistence: one JSON file per session in ``sessions/`` (or
 ``SOCRATIC_SESSIONS_DIR``), rewritten after every turn so a crash mid-session
 loses at most the current turn.
@@ -98,7 +104,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Optional, Sequence
 
 from . import classifier_behavioral
-from .classifier_llm import CONFIDENCE_THRESHOLD
+from .classifier_llm import CONFIDENCE_THRESHOLD, MATCHED_NONE
 from .disengagement import flag_disengagement
 from .escalation import choose_escalation
 from .mastery import should_escalate, update_mastery
@@ -133,6 +139,15 @@ ClassifierFn = Callable[[Question, str], Mapping[str, Any]]
 HintFn = Callable[[Question, str, ErrorType], str]
 VerifyFn = Callable[[Question, str], bool]
 
+# matched_bank_id, keyed on whether the LLM classifier was invoked this turn:
+#   None          never invoked (filter, exact match, Case A verified, low_effort).
+#                 The Case A YES/NO verify call is not the classifier.
+#   "none"        invoked or attempted (including a raising classifier and the
+#                 offline default_classifier) and matched no example
+#   "m_0", "m_1", ..., "natural_correct", "partial_example"
+#                 invoked and matched that few-shot example
+MatchedBankId = Optional[str]
+
 
 # -- data ---------------------------------------------------------------------
 
@@ -146,6 +161,7 @@ class Classification:
     confidence: float = 1.0
     reasoning: str = ""
     cloud_fallback_used: bool = False
+    matched_bank_id: MatchedBankId = None
 
 
 @dataclass
@@ -221,6 +237,10 @@ def default_hint(question: Question, answer: str, error_type: ErrorType) -> str:
 
 
 # -- the machine --------------------------------------------------------------
+
+
+def _elapsed_ms(t0: float) -> int:
+    return int(round((time.perf_counter() - t0) * 1000))
 
 
 def _confidence(raw: Mapping[str, Any]) -> float:
@@ -315,6 +335,7 @@ class SocraticSession:
         if question is None:
             raise RuntimeError("session is finished; no question to answer")
 
+        t0 = time.perf_counter()
         st = self.state
         answer = answer.strip()
 
@@ -326,10 +347,9 @@ class SocraticSession:
             st.attempt_count += 1
             correct = question.is_correct(answer)
             disengaged, disengagement_tokens = flag_disengagement(answer)
-            self._log(
-                "answer",
+            self._log_answer(
                 question,
-                tier=question.tier,
+                t0,
                 answer=answer,
                 attempt=st.attempt_count,
                 correct=correct,
@@ -337,7 +357,6 @@ class SocraticSession:
                 kind="correct" if correct else "wrong",
                 disengagement_flag=disengaged,
                 disengagement_tokens=disengagement_tokens,
-                case_a_verified=None,
             )
             update_mastery(st.mastery, question.cluster, question.tier, correct)
             if correct:
@@ -365,10 +384,9 @@ class SocraticSession:
 
         if question.is_correct(answer):
             st.attempt_count += 1
-            self._log(
-                "answer",
+            self._log_answer(
                 question,
-                tier=question.tier,
+                t0,
                 answer=answer,
                 attempt=st.attempt_count,
                 correct=True,
@@ -378,7 +396,6 @@ class SocraticSession:
                 key_terms_missing=[],
                 disengagement_flag=disengaged,
                 disengagement_tokens=disengagement_tokens,
-                case_a_verified=None,
             )
             st.solved_question_ids.append(question.id)
             update_mastery(st.mastery, question.cluster, question.tier, True)
@@ -406,6 +423,7 @@ class SocraticSession:
                 return self._socratic_correct(
                     question,
                     answer,
+                    t0,
                     error_source="key_terms" if case_a_verified is None else "key_terms_verified",
                     matched=matched,
                     missing=missing,
@@ -426,6 +444,7 @@ class SocraticSession:
                 return self._socratic_correct(
                     question,
                     answer,
+                    t0,
                     error_source=cls.source,
                     matched=matched,
                     missing=missing,
@@ -435,15 +454,15 @@ class SocraticSession:
                     turn_error_source=cls.source,
                     confidence=cls.confidence,
                     reasoning=cls.reasoning,
+                    matched_bank_id=cls.matched_bank_id,
                     cloud_fallback_used=cls.cloud_fallback_used,
                     case_a_verified=case_a_verified,
                 )
 
         st.last_error_type = cls.error_type
-        self._log(
-            "answer",
+        answer_entry = self._log_answer(
             question,
-            tier=question.tier,
+            t0,
             answer=answer,
             attempt=st.attempt_count,
             correct=(verdict == "correct"),
@@ -457,6 +476,7 @@ class SocraticSession:
             key_terms_missing=missing,
             disengagement_flag=disengaged,
             disengagement_tokens=disengagement_tokens,
+            matched_bank_id=cls.matched_bank_id,
             cloud_fallback_used=cls.cloud_fallback_used,
             case_a_verified=case_a_verified,
         )
@@ -478,6 +498,8 @@ class SocraticSession:
         # said partial), hint_pipeline gets no missing_terms and falls back to
         # the error_type strategy, i.e. logic_error: nothing lexical to point at.
         hint = self._hint(question, answer, cls.error_type, missing_terms=missing if verdict == "partial" else None)
+        # The answer entry is already in history; this writes through to it.
+        answer_entry["hint_text"] = hint
         self._log("hint", question, attempt=st.attempt_count, error_type=cls.error_type, hint=hint)
         self._log("mastery_snapshot", question, mastery=dict(st.mastery))
         self._maybe_save()
@@ -577,7 +599,10 @@ class SocraticSession:
 
         if raw is None:
             verdict, kind = LLM_VERDICTS[LLM_FALLBACK_LABEL]
-            return Classification(LLM_FALLBACK_LABEL, "llm", 0.0, f"classifier failed: {local_error!r}"), verdict, kind
+            cls = Classification(
+                LLM_FALLBACK_LABEL, "llm", 0.0, f"classifier failed: {local_error!r}", matched_bank_id=MATCHED_NONE
+            )
+            return cls, verdict, kind
         elapsed_ms = (time.perf_counter() - t0) * 1000
 
         llm_label = str(raw.get("error_type", ""))
@@ -589,6 +614,7 @@ class SocraticSession:
             _confidence(raw),
             str(raw.get("reasoning", "")),
             cloud_fallback_used=cloud_used,
+            matched_bank_id=str(raw.get("matched_bank_id") or MATCHED_NONE),
         )
         extra: dict[str, Any] = {}
         if cloud_attempted:
@@ -615,6 +641,7 @@ class SocraticSession:
         self,
         question: Question,
         answer: str,
+        t0: float,
         *,
         error_source: str,
         matched: list[str],
@@ -629,10 +656,9 @@ class SocraticSession:
         LLM ``correct``. No hint. ``error_source`` goes to the answer log;
         ``turn_error_source`` to the returned TurnResult (None for Case A)."""
         st = self.state
-        self._log(
-            "answer",
+        self._log_answer(
             question,
-            tier=question.tier,
+            t0,
             answer=answer,
             attempt=st.attempt_count,
             correct=True,
@@ -727,12 +753,43 @@ class SocraticSession:
         self.state.last_error_type = None
         self._log("question_presented", q, question_text=q.question_text)
 
-    def _log(self, event: str, question: Optional[Question], **fields: Any) -> None:
+    def _log_answer(
+        self,
+        question: Question,
+        t0: float,
+        *,
+        matched_bank_id: MatchedBankId = None,
+        case_a_verified: Optional[bool] = None,
+        cloud_fallback_used: bool = False,
+        **fields: Any,
+    ) -> dict[str, Any]:
+        """Log an ``answer`` event with the fields every one carries.
+
+        ``hint_text`` starts empty; the hint path fills it in on the returned
+        entry once the hint exists. ``elapsed_ms`` runs from ``t0`` (turn
+        entry) to now, which is the moment the verdict is produced.
+        """
+        return self._log(
+            "answer",
+            question,
+            tier=question.tier,
+            **fields,
+            hint_text="",
+            attempt_number=self.state.attempt_count,
+            elapsed_ms=_elapsed_ms(t0),
+            matched_bank_id=matched_bank_id,
+            case_a_verified=case_a_verified,
+            cloud_fallback_used=cloud_fallback_used,
+        )
+
+    def _log(self, event: str, question: Optional[Question], **fields: Any) -> dict[str, Any]:
+        """Append an entry to history and return that same object (not a copy)."""
         entry: dict[str, Any] = {"ts": _now_iso(), "event": event}
         if question is not None:
             entry["question_id"] = question.id
         entry.update(fields)
         self.state.history.append(entry)
+        return entry
 
     def _maybe_save(self) -> None:
         if self.autosave:
