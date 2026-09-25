@@ -365,6 +365,27 @@ def build_verify_prompt(question: Any, answer: str) -> str:
     return build_prompt(user, system=VERIFY_SYSTEM_PROMPT)
 
 
+class CaseAVerifyClientError(RuntimeError):
+    """The verify client returned an error dict; the message is its payload.
+
+    Raised only by the ``make_verify_fn`` callable, so the state machine logs
+    it (``classifier_error``, ``stage="case_a_verify"``) and fails open there.
+    ``verify_case_a`` itself still just returns True.
+    """
+
+
+def _verify(question: Any, answer: str, client: Any) -> tuple[bool, Optional[str]]:
+    """``(verdict, client_error)``; the verdict fails open exactly as documented on ``verify_case_a``."""
+    try:
+        result = client.generate(build_verify_prompt(question, answer), max_tokens=VERIFY_MAX_TOKENS)
+    except Exception:  # noqa: BLE001 - fail open
+        return True, None
+    if result.get("error") is not None:
+        return True, str(result["error"])
+    m = _YES_NO.search(str(result.get("text", "") or ""))
+    return m is None or m.group(1).upper() == "YES", None
+
+
 def verify_case_a(question: Any, answer: str, client: Any) -> bool:
     """Cheap single-word YES/NO verification of Case A.
 
@@ -372,16 +393,21 @@ def verify_case_a(question: Any, answer: str, client: Any) -> bool:
     an exception, or a reply with no YES/NO in it: the answer already matched
     every key term, so an unusable check must not cost the student.
     """
-    try:
-        result = client.generate(build_verify_prompt(question, answer), max_tokens=VERIFY_MAX_TOKENS)
-    except Exception:  # noqa: BLE001 - fail open
-        return True
-    if result.get("error") is not None:
-        return True
-    m = _YES_NO.search(str(result.get("text", "") or ""))
-    return m is None or m.group(1).upper() == "YES"
+    return _verify(question, answer, client)[0]
 
 
 def make_verify_fn(client: Any):
-    """Adapter to the state machine's ``verify_fn(question, answer)`` slot."""
-    return lambda question, answer: verify_case_a(question, answer, client)
+    """Adapter to the state machine's ``verify_fn(question, answer)`` slot.
+
+    A client error raises ``CaseAVerifyClientError`` instead of returning the
+    fail-open True, so it is logged rather than silent; the state machine
+    still treats it as YES.
+    """
+
+    def verify(question: Any, answer: str) -> bool:
+        verdict, client_error = _verify(question, answer, client)
+        if client_error is not None:
+            raise CaseAVerifyClientError(client_error)
+        return verdict
+
+    return verify

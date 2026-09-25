@@ -52,7 +52,7 @@ _RESOLVED_AT_BANK = "bank exact match"
 _LLM_SOURCES = frozenset({"llm", "llm_groq_fallback"})
 
 # Turn-table display.
-_NO_LLM = "—"
+_DASH = "—"
 _NO_MATCH = "no match"
 _HINT_PREVIEW_CHARS = 40
 
@@ -89,16 +89,22 @@ def make_client(backend_label: str, bank: Optional[QuestionBank] = None) -> Any:
     ``GroqClient`` raises ``GroqConfigError`` without a key; the sidebar
     checks ``groq_available()`` before offering the switch. With ``bank``,
     the mock classifies that bank's partial demo presets as partial.
+
+    An unknown label raises ``ValueError``: falling back to the mock would
+    silently grade a "local" session with canned answers (a label persisted
+    in session state from before a rename did exactly that).
     """
     if backend_label == BACKEND_LOCAL:
         return LocalCPUClient()
     if backend_label == BACKEND_GROQ:
         return GroqClient()
-    if bank is None:
-        return MockInferenceClient()
-    from .student_view import mock_label_overrides  # deferred: student_view imports this module
+    if backend_label == BACKEND_MOCK:
+        if bank is None:
+            return MockInferenceClient()
+        from .student_view import mock_label_overrides  # deferred: student_view imports this module
 
-    return MockInferenceClient(label_overrides=mock_label_overrides(bank))
+        return MockInferenceClient(label_overrides=mock_label_overrides(bank))
+    raise ValueError(f"unknown backend label {backend_label!r}; expected one of {BACKEND_LABELS}")
 
 
 def cloud_fallback_fn(enabled: bool, backend_label: str) -> Optional[Any]:
@@ -136,6 +142,7 @@ def build_session(
        hint_fn=lambda q, a, e, *, missing_terms=None: hint_pipeline(
     q, a, e, client, missing_terms=missing_terms
 )["hint"],
+        backend=backend_label,
     )
 
 
@@ -190,7 +197,7 @@ def llm_called(error_source: Optional[str]) -> bool:
 def matched_label(matched_bank_id: Optional[str]) -> str:
     """Turn-table text: "—" (LLM not invoked), "no match", or the example ID."""
     if matched_bank_id is None:
-        return _NO_LLM
+        return _DASH
     if matched_bank_id == MATCHED_NONE:
         return _NO_MATCH
     return matched_bank_id
@@ -239,6 +246,7 @@ def answer_rows(history: Sequence[dict]) -> list[dict]:
         rows.append(
             {
                 "turn": len(rows) + 1,
+                "backend": entry.get("backend") or _DASH,
                 "question_id": entry.get("question_id"),
                 "tier": entry.get("tier"),
                 "attempt_number": entry.get("attempt_number"),

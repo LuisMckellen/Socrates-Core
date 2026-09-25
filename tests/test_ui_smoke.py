@@ -230,6 +230,17 @@ class TestUISmoke(unittest.TestCase):
         session.submit_answer("Rudolf Virchow")
         self.assertEqual(student_view.graded_answer(session), "Rudolf Virchow")
 
+    def test_make_client_raises_on_unknown_label(self) -> None:
+        # The exact label a pre-rename Streamlit session still held.
+        with self.assertRaises(ValueError) as cm:
+            state.make_client("Local CPU (~6.5s)")
+        self.assertIn("Local CPU (~6.5s)", str(cm.exception))
+        with self.assertRaises(ValueError):
+            state.make_client("")
+        # Known labels route explicitly (Local and Groq need a model / key, so only Mock is built here).
+        self.assertIsInstance(state.make_client(state.BACKEND_MOCK), MockInferenceClient)
+        self.assertIsInstance(state.make_client(state.BACKEND_MOCK, self.bank), MockInferenceClient)
+
     def test_llm_called_true_on_groq_fallback(self) -> None:
         self.assertTrue(state.llm_called("llm_groq_fallback"))
         self.assertTrue(state.llm_called("llm"))

@@ -777,7 +777,7 @@ class LLMVerdictTests(unittest.TestCase):
             ["ts", "event", "question_id", "tier", "answer", "attempt", "correct", "verdict", "kind",
              "error_source", "key_terms_matched", "key_terms_missing", "disengagement_flag", "disengagement_tokens",
              "hint_text", "attempt_number", "elapsed_ms", "matched_bank_id", "case_a_verified",
-             "cloud_fallback_used"],
+             "cloud_fallback_used", "backend"],
         )
         self.assertEqual(answer["error_source"], "key_terms_verified")
         self.assertIs(answer["case_a_verified"], True)
@@ -886,6 +886,49 @@ class LLMVerdictTests(unittest.TestCase):
         # Invoked and matched -> the example ID.
         text = "LABEL: logic_error\nCONFIDENCE: 0.9\nMATCHED: m_0\nREASONING: swelling"
         self.assertEqual(matched(make_classifier_fn(_ScriptedClient(text)), self.NATURAL), "m_0")
+
+    def test_answer_event_logs_backend(self):
+        label = "Local CPU (~7s)"
+
+        def session(classifier_fn, question_ids=("s_cell_theory_L1",)):
+            return SocraticSession(
+                self.bank, question_ids=list(question_ids), classifier_fn=classifier_fn,
+                hint_fn=lambda q, a, e: "hint?", sessions_dir=self.sessions_dir, backend=label,
+            )
+
+        mock = make_classifier_fn(MockInferenceClient())
+        paths = {}
+        s = session(mock, question_ids=["f_001"])
+        s.submit_answer("banana")
+        paths["filter"] = s
+        s = session(mock)
+        s.submit_answer(self.q.correct_answer)
+        paths["exact"] = s
+        s = session(Mock(side_effect=AssertionError("LLM reached on Case A")))
+        s.submit_answer(self.CASE_A)
+        paths["case_a"] = s
+        s = session(lambda q, a: {"error_type": "correct", "confidence": 0.9, "reasoning": "ok"})
+        s.submit_answer(self.NATURAL)
+        paths["llm_correct"] = s
+        s = session(mock)
+        s.submit_answer("The damaged tissue just swells up bigger over time")
+        paths["llm_wrong"] = s
+        s = session(mock)
+        s.submit_answer("No idea")
+        paths["low_effort"] = s
+
+        expected_verdicts = {"filter": "wrong", "exact": "correct", "case_a": "correct", "llm_correct": "correct",
+                             "llm_wrong": "wrong", "low_effort": "low_effort"}
+        for path, s in paths.items():
+            answer = self._events(s, "answer")[-1]
+            with self.subTest(path=path):
+                self.assertEqual(answer["verdict"], expected_verdicts[path])  # the path really ran
+                self.assertEqual(answer["backend"], label)
+        # Unset (CLI, tests) is logged as None, never omitted.
+        plain = self._session(mock)
+        plain.submit_answer("No idea")
+        self.assertIn("backend", self._events(plain, "answer")[-1])
+        self.assertIsNone(self._events(plain, "answer")[-1]["backend"])
 
 
 if __name__ == "__main__":

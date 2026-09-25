@@ -15,6 +15,7 @@ from socratic_core.cloud_client import API_KEY_NAME, groq_available
 from . import state
 
 _NO_KEY = f"Set {API_KEY_NAME} (env var or .streamlit/secrets.toml) to enable Groq."
+_MOCK_WARNING = "Mock backend — canned answers, not real classification."
 
 
 def _sync_backend() -> None:
@@ -49,6 +50,8 @@ def render() -> None:
     with st.sidebar:
         st.title("Socratic Core")
         st.caption("Qwen3-4B · Snapdragon X Elite NPU")
+        if st.session_state.sc_backend == state.BACKEND_MOCK:
+            st.error(_MOCK_WARNING, icon="⚠️")
         st.divider()
 
         st.session_state.setdefault("sc_backend_choice", st.session_state.sc_backend)

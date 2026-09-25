@@ -84,7 +84,8 @@ Every answer event, on every path, also carries ``hint_text`` (the hint
 attached to this turn's result, "" if none; it repeats the ``hint`` event's
 payload so one answer row is self-contained), ``attempt_number`` (1-based),
 ``elapsed_ms`` (int, turn entry to verdict), ``matched_bank_id`` (see
-``MatchedBankId``), ``case_a_verified`` and ``cloud_fallback_used``.
+``MatchedBankId``), ``case_a_verified``, ``cloud_fallback_used`` and
+``backend`` (the UI's backend label, or None).
 
 Persistence: one JSON file per session in ``sessions/`` (or
 ``SOCRATIC_SESSIONS_DIR``), rewritten after every turn so a crash mid-session
@@ -284,6 +285,7 @@ class SocraticSession:
         bypass_bank_lookup: bool = False,
         fallback_classifier_fn: Optional[ClassifierFn] = None,
         verify_fn: Optional[VerifyFn] = None,
+        backend: Optional[str] = None,
     ) -> None:
         # A session walks the filters; Socratic entries are reached only by
         # escalation. A bank with no filters is walked in full (legacy shape).
@@ -303,6 +305,9 @@ class SocraticSession:
         self.fallback_classifier_fn: Optional[ClassifierFn] = fallback_classifier_fn
         # None = Case A is not verified (see module docstring).
         self.verify_fn: Optional[VerifyFn] = verify_fn
+        # Backend label as the UI shows it, logged on every answer event; None
+        # when the caller does not say (CLI, tests).
+        self.backend = backend
         self.hint_fn: HintFn = hint_fn or default_hint
         self._hint_fn_takes_missing_terms = _hint_fn_accepts_missing_terms(self.hint_fn)
         self.sessions_dir = Path(sessions_dir) if sessions_dir else default_sessions_dir()
@@ -549,7 +554,9 @@ class SocraticSession:
         return None, matched, missing
 
     def _verify_case_a(self, question: Question, answer: str) -> Optional[bool]:
-        """None without a verify_fn; otherwise its verdict. Raising fails open."""
+        """None without a verify_fn; otherwise its verdict. Raising fails open,
+        logged as classifier_error: that includes a verify client error, which
+        ``make_verify_fn`` raises as ``CaseAVerifyClientError``."""
         if self.verify_fn is None:
             return None
         try:
@@ -780,6 +787,7 @@ class SocraticSession:
             matched_bank_id=matched_bank_id,
             case_a_verified=case_a_verified,
             cloud_fallback_used=cloud_fallback_used,
+            backend=self.backend,
         )
 
     def _log(self, event: str, question: Optional[Question], **fields: Any) -> dict[str, Any]:

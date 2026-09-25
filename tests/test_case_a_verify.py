@@ -118,6 +118,25 @@ class CaseAVerifyTests(unittest.TestCase):
         error = self._events(s, "classifier_error")[-1]
         self.assertEqual(error["stage"], "case_a_verify")
 
+    def test_verify_client_error_logs_classifier_error(self):
+        class _ErrorClient:
+            def generate(self, prompt, max_tokens=256):
+                return {"text": "", "ttft_ms": 0.0, "total_ms": 0.0, "tokens_generated": 0,
+                        "error": "model not loaded"}
+
+        s = self._session(make_verify_fn(_ErrorClient()))
+        r = s.submit_answer(CONTRADICTION)
+        # Still fails open: the verdict is unchanged...
+        self.assertEqual(r.kind, "correct")
+        answer = self._events(s, "answer")[-1]
+        self.assertEqual((answer["error_source"], answer["case_a_verified"]), ("key_terms_verified", True))
+        # ...but no longer silently.
+        errors = [e for e in self._events(s, "classifier_error") if e.get("stage") == "case_a_verify"]
+        self.assertEqual(len(errors), 1)
+        self.assertIn("model not loaded", errors[0]["error"])
+        # The pure function's contract is untouched: a client error is just True.
+        self.assertIs(verify_case_a(Q, CONTRADICTION, _ErrorClient()), True)
+
     def test_verify_reply_parsing(self):
         for text, expected in (("YES", True), ("no.", False), (" No, it contradicts itself", False),
                                ("Yes", True), ("maybe", True), ("", True)):
