@@ -127,6 +127,9 @@ class Misconception:
     wrong_answer: str
     error_type: ErrorType
     explanation: str
+    # Optional in the JSON (authored in 0b). What a question aimed at this
+    # misconception should get the student to notice. None when absent or blank.
+    diagnostic_goal: Optional[str] = None
 
     def matches(self, answer: str) -> bool:
         return normalize_answer(answer) == normalize_answer(self.wrong_answer)
@@ -278,11 +281,15 @@ def _parse_misconception(raw: dict, qid: str, idx: int) -> Misconception:
         raise QuestionBankError(
             f"{where}: error_type {etype!r} not in {sorted(BANK_ERROR_TYPES)}"
         )
+    goal = raw.get("diagnostic_goal")
+    if goal is not None and not isinstance(goal, str):
+        raise QuestionBankError(f"{where}: diagnostic_goal must be a string (got {type(goal).__name__})")
     return Misconception(
         id=mid,
         wrong_answer=wrong,
         error_type=etype,  # type: ignore[arg-type]
         explanation=str(raw.get("explanation", "")),
+        diagnostic_goal=(goal or "").strip() or None,
     )
 
 

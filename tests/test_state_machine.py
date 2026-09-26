@@ -776,7 +776,7 @@ class LLMVerdictTests(unittest.TestCase):
             list(answer),
             ["ts", "event", "question_id", "tier", "answer", "attempt", "correct", "verdict", "kind",
              "error_source", "key_terms_matched", "key_terms_missing", "disengagement_flag", "disengagement_tokens",
-             "hint_text", "attempt_number", "elapsed_ms", "matched_bank_id", "case_a_verified",
+             "hint_text", "rejections", "attempt_number", "elapsed_ms", "matched_bank_id", "case_a_verified",
              "cloud_fallback_used", "backend"],
         )
         self.assertEqual(answer["error_source"], "key_terms_verified")
@@ -785,6 +785,7 @@ class LLMVerdictTests(unittest.TestCase):
         self.assertIs(answer["cloud_fallback_used"], False)
         self.assertEqual(answer["attempt_number"], 1)
         self.assertEqual(answer["hint_text"], "")
+        self.assertEqual(answer["rejections"], [])
         self.assertIsInstance(answer["elapsed_ms"], int)
         self.assertGreaterEqual(answer["elapsed_ms"], 0)
 
@@ -886,6 +887,41 @@ class LLMVerdictTests(unittest.TestCase):
         # Invoked and matched -> the stable bank id (the model names the prompt alias m_0).
         text = "LABEL: logic_error\nCONFIDENCE: 0.9\nMATCHED: m_0\nREASONING: swelling"
         self.assertEqual(matched(make_classifier_fn(_ScriptedClient(text)), self.NATURAL), "ct_hypertrophy")
+
+    def test_hint_fn_receives_semantic_matched_bank_id(self):
+        text = "LABEL: logic_error\nCONFIDENCE: 0.9\nMATCHED: m_0\nREASONING: swelling"
+        seen = []
+
+        def hint(question, answer, error_type, *, matched_bank_id=None):
+            seen.append(matched_bank_id)
+            return "Why?"
+
+        s = SocraticSession(
+            self.bank, question_ids=["s_cell_theory_L1"], classifier_fn=make_classifier_fn(_ScriptedClient(text)),
+            hint_fn=hint, sessions_dir=self.sessions_dir,
+        )
+        s.submit_answer(self.NATURAL)
+        self.assertEqual(seen, ["ct_hypertrophy"])
+        # A three-argument hint_fn (self._session's) is still called with three arguments.
+        three = self._session(make_classifier_fn(_ScriptedClient(text)))
+        self.assertEqual(three.submit_answer(self.NATURAL).message, "What must the cells do?")
+
+    def test_answer_event_logs_hint_rejections(self):
+        def pipeline_like(question, answer, error_type):
+            return {"hint": "Why?", "source": "llm", "rejections": ["does not end with '?'"]}
+
+        s = SocraticSession(
+            self.bank, question_ids=["s_cell_theory_L1"], classifier_fn=make_classifier_fn(MockInferenceClient()),
+            hint_fn=pipeline_like, sessions_dir=self.sessions_dir,
+        )
+        r = s.submit_answer(self.NATURAL)
+        answer = self._events(s, "answer")[-1]
+        self.assertEqual((r.message, answer["hint_text"]), ("Why?", "Why?"))
+        self.assertEqual(answer["rejections"], ["does not end with '?'"])
+        # A plain-string hint_fn logs no rejections; the field is still present.
+        plain = self._session(make_classifier_fn(MockInferenceClient()))
+        plain.submit_answer(self.NATURAL)
+        self.assertEqual(self._events(plain, "answer")[-1]["rejections"], [])
 
     def test_answer_event_logs_backend(self):
         label = "Local CPU (~7s)"

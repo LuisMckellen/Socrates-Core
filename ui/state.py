@@ -139,9 +139,10 @@ def build_session(
         question_ids=question_ids_for_clusters(bank, clusters),
         classifier_fn=make_classifier_fn(client),
         verify_fn=make_verify_fn(client),
-       hint_fn=lambda q, a, e, *, missing_terms=None: hint_pipeline(
-    q, a, e, client, missing_terms=missing_terms
-)["hint"],
+        # The whole hint_pipeline dict: the session logs its rejections.
+        hint_fn=lambda q, a, e, *, missing_terms=None, matched_bank_id=None: hint_pipeline(
+            q, a, e, client, missing_terms=missing_terms, matched_bank_id=matched_bank_id
+        ),
         backend=backend_label,
     )
 

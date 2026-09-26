@@ -52,7 +52,11 @@ exercised with no model at all:
                                                    (error_type: correct, partial,
                                                    wording_error or logic_error;
                                                    optional raw_output)
-    hint_fn(question, answer, error_type)       -> hint string
+    hint_fn(question, answer, error_type)       -> hint string, or a Mapping with
+                                                   hint / rejections (hint_pipeline's
+                                                   dict); optional keywords
+                                                   missing_terms / matched_bank_id,
+                                                   passed only if declared
     verify_fn(question, answer)                 -> bool (Case A check; optional)
 
 The classifier's label is turned into a verdict only through ``LLM_VERDICTS``:
@@ -82,7 +86,9 @@ one only if it clears that same threshold; the turn is then logged with
 
 Every answer event, on every path, also carries ``hint_text`` (the hint
 attached to this turn's result, "" if none; it repeats the ``hint`` event's
-payload so one answer row is self-contained), ``attempt_number`` (1-based),
+payload so one answer row is self-contained), ``rejections`` (the hint
+validator's reasons for discarded generations this turn, [] if none),
+``attempt_number`` (1-based),
 ``elapsed_ms`` (int, turn entry to verdict), ``matched_bank_id`` (see
 ``MatchedBankId``), ``case_a_verified``, ``cloud_fallback_used`` and
 ``backend`` (the UI's backend label, or None).
@@ -137,7 +143,7 @@ PARTIAL_ERROR_TYPE = "logic_error"
 CLOUD_FALLBACK_SOURCE = "llm_groq_fallback"
 
 ClassifierFn = Callable[[Question, str], Mapping[str, Any]]
-HintFn = Callable[[Question, str, ErrorType], str]
+HintFn = Callable[..., Any]  # (question, answer, error_type, **optional) -> str | Mapping
 VerifyFn = Callable[[Question, str], bool]
 
 # matched_bank_id, keyed on whether the LLM classifier was invoked this turn:
@@ -253,11 +259,12 @@ def _confidence(raw: Mapping[str, Any]) -> float:
         return 0.0
 
 
-def _hint_fn_accepts_missing_terms(fn: HintFn) -> bool:
-    """Whether ``fn`` can be handed the partial path's missing key terms.
+def _hint_fn_accepts(fn: HintFn, keyword: str) -> bool:
+    """Whether ``fn`` can be handed the optional ``keyword`` argument
+    (``missing_terms`` on the partial path, ``matched_bank_id`` everywhere).
 
     ``hint_fn`` is a public injection point with a three-argument contract, so
-    the extra keyword is offered only to callables that declare it. Anything
+    an extra keyword is offered only to callables that declare it. Anything
     older keeps being called exactly as before.
     """
     try:
@@ -266,7 +273,7 @@ def _hint_fn_accepts_missing_terms(fn: HintFn) -> bool:
         return False
     if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()):
         return True
-    return "missing_terms" in params
+    return keyword in params
 
 
 class SocraticSession:
@@ -311,7 +318,8 @@ class SocraticSession:
         # when the caller does not say (CLI, tests).
         self.backend = backend
         self.hint_fn: HintFn = hint_fn or default_hint
-        self._hint_fn_takes_missing_terms = _hint_fn_accepts_missing_terms(self.hint_fn)
+        self._hint_fn_takes_missing_terms = _hint_fn_accepts(self.hint_fn, "missing_terms")
+        self._hint_fn_takes_matched_bank_id = _hint_fn_accepts(self.hint_fn, "matched_bank_id")
         self.sessions_dir = Path(sessions_dir) if sessions_dir else default_sessions_dir()
         self.autosave = autosave
         # Evaluation switch: skip the misconception layer so every non-low-effort
@@ -504,9 +512,17 @@ class SocraticSession:
         # none (Case A matched every term, verification said NO, then the LLM
         # said partial), hint_pipeline gets no missing_terms and falls back to
         # the error_type strategy, i.e. logic_error: nothing lexical to point at.
-        hint = self._hint(question, answer, cls.error_type, missing_terms=missing if verdict == "partial" else None)
+        # matched_bank_id lets hint_pipeline aim at a matched bank misconception.
+        hint, rejections = self._hint(
+            question,
+            answer,
+            cls.error_type,
+            missing_terms=missing if verdict == "partial" else None,
+            matched_bank_id=cls.matched_bank_id,
+        )
         # The answer entry is already in history; this writes through to it.
         answer_entry["hint_text"] = hint
+        answer_entry["rejections"] = rejections
         self._log("hint", question, attempt=st.attempt_count, error_type=cls.error_type, hint=hint)
         self._log("mastery_snapshot", question, mastery=dict(st.mastery))
         self._maybe_save()
@@ -691,20 +707,32 @@ class SocraticSession:
         answer: str,
         error_type: ErrorType,
         missing_terms: Optional[Sequence[str]] = None,
-    ) -> str:
+        matched_bank_id: MatchedBankId = None,
+    ) -> tuple[str, list[str]]:
+        """``(hint, rejections)``. ``hint_fn`` may return the hint string, or
+        ``hint_pipeline``'s dict, whose ``rejections`` (validator reasons for
+        discarded generations) go to the answer event; a string means none."""
         t0 = time.perf_counter()
+        kwargs: dict[str, Any] = {}
+        if missing_terms and self._hint_fn_takes_missing_terms:
+            kwargs["missing_terms"] = list(missing_terms)
+        if self._hint_fn_takes_matched_bank_id:
+            kwargs["matched_bank_id"] = matched_bank_id
+        rejections: list[str] = []
         try:
-            if missing_terms and self._hint_fn_takes_missing_terms:
-                hint = self.hint_fn(question, answer, error_type, missing_terms=list(missing_terms))
+            result = self.hint_fn(question, answer, error_type, **kwargs)
+            if isinstance(result, Mapping):
+                rejections = [str(r) for r in result.get("rejections", ())]
+                hint = str(result.get("hint", ""))
             else:
-                hint = self.hint_fn(question, answer, error_type)
+                hint = result
         except Exception as e:  # noqa: BLE001
             self._log("hint_error", question, error=repr(e))
             hint = question.fallback_hint
         elapsed_ms = (time.perf_counter() - t0) * 1000
         if self.hint_fn is not default_hint:
             self._log("llm_hint", question, elapsed_ms=round(elapsed_ms, 1))
-        return hint.strip() or question.fallback_hint
+        return hint.strip() or question.fallback_hint, rejections
 
     # -- helpers -------------------------------------------------------------
 
@@ -774,9 +802,10 @@ class SocraticSession:
     ) -> dict[str, Any]:
         """Log an ``answer`` event with the fields every one carries.
 
-        ``hint_text`` starts empty; the hint path fills it in on the returned
-        entry once the hint exists. ``elapsed_ms`` runs from ``t0`` (turn
-        entry) to now, which is the moment the verdict is produced.
+        ``hint_text`` starts empty and ``rejections`` starts as []; the hint path
+        fills both in on the returned entry once the hint exists. ``elapsed_ms``
+        runs from ``t0`` (turn entry) to now, which is the moment the verdict
+        is produced.
         """
         return self._log(
             "answer",
@@ -784,6 +813,7 @@ class SocraticSession:
             tier=question.tier,
             **fields,
             hint_text="",
+            rejections=[],
             attempt_number=self.state.attempt_count,
             elapsed_ms=_elapsed_ms(t0),
             matched_bank_id=matched_bank_id,

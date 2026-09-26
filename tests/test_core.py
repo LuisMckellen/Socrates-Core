@@ -193,6 +193,20 @@ class QuestionBankTests(unittest.TestCase):
         misc = {**self._SOCRATIC_RAW["misconceptions"][0], "id": mid}
         return {**self._SOCRATIC_RAW, "misconceptions": [misc]}
 
+    def test_diagnostic_goal_optional(self):
+        # Absent, null or blank -> None (the generator then omits the line); a string is kept, stripped.
+        def goal(**extra):
+            misc = {**self._SOCRATIC_RAW["misconceptions"][0], **extra}
+            return self._load_one({**self._SOCRATIC_RAW, "misconceptions": [misc]}).get("s_x").misconceptions[0].diagnostic_goal
+
+        self.assertIsNone(goal())
+        self.assertIsNone(goal(diagnostic_goal=None))
+        self.assertIsNone(goal(diagnostic_goal="   "))
+        self.assertEqual(goal(diagnostic_goal=" Notice that swelling adds no cells. "), "Notice that swelling adds no cells.")
+        with self.assertRaises(QuestionBankError) as cm:
+            goal(diagnostic_goal=3)
+        self.assertIn("diagnostic_goal must be a string", str(cm.exception))
+
     def test_misconception_id_required(self):
         raw = {**self._SOCRATIC_RAW, "misconceptions": [{"wrong_answer": "w", "error_type": "logic_error", "explanation": "e"}]}
         with self.assertRaises(QuestionBankError) as cm:

@@ -57,7 +57,12 @@ def main(argv: Optional[list[str]] = None, input_fn: Callable[[str], str] = inpu
             question_ids=args.question_id or bank.ids()[:1],
             classifier_fn=make_classifier_fn(client),
             verify_fn=make_verify_fn(client),
-            hint_fn=lambda q, a, e: hint_pipeline(q, a, e, client)["hint"],
+            # Same wiring as the UI (ui/state.py build_session): the partial
+            # path's missing_terms and the classifier's matched_bank_id reach
+            # hint_pipeline, and the session logs its rejections.
+            hint_fn=lambda q, a, e, *, missing_terms=None, matched_bank_id=None: hint_pipeline(
+                q, a, e, client, missing_terms=missing_terms, matched_bank_id=matched_bank_id
+            ),
         )
     except KeyError as e:
         parser.error(f"{e.args[0]} (known ids: {', '.join(bank.ids())})")
