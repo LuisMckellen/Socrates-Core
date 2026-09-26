@@ -42,8 +42,8 @@ Q1 = Question(
     correct_answer="the cell",
     accepted_variants=("cell", "cells"),
     misconceptions=(
-        Misconception("the atom", "logic_error", "Atoms are not alive; the basic unit of life is the cell."),
-        Misconception("the organ is the unit", "logic_error", "Organs are made of many cells working together."),
+        Misconception("ct_atom_is_unit", "the atom", "logic_error", "Atoms are not alive; the basic unit of life is the cell."),
+        Misconception("ct_organ_is_unit", "the organ is the unit", "logic_error", "Organs are made of many cells working together."),
     ),
     fallback_hint="What is the smallest part of your body that is still alive on its own?",
     min_words=1,
@@ -60,8 +60,8 @@ Q2 = Question(
     correct_answer="from pre-existing cells",
     accepted_variants=("pre-existing cells", "from other cells", "existing cells"),
     misconceptions=(
-        Misconception("they form on their own", "logic_error", "This is spontaneous generation, which experiments disproved."),
-        Misconception("cells make cells", "logic_error", "Right idea, but state it precisely: new cells arise from pre-existing cells."),
+        Misconception("ct_cells_form_on_own", "they form on their own", "logic_error", "This is spontaneous generation, which experiments disproved."),
+        Misconception("ct_cells_make_cells", "cells make cells", "logic_error", "Right idea, but state it precisely: new cells arise from pre-existing cells."),
     ),
     fallback_hint="What must already exist for a new cell to form?",
     min_words=2,
@@ -165,7 +165,7 @@ class QuestionBankTests(unittest.TestCase):
         "id": "s_x", "tier": "socratic", "cluster": "c", "topic": "t", "level": 1,
         "question_text": "q", "correct_answer": "a", "accepted_variants": ["a"],
         "key_terms": ["a"], "min_words": 3, "fallback_hint": "h?",
-        "misconceptions": [{"wrong_answer": "w", "error_type": "logic_error", "explanation": "e"}],
+        "misconceptions": [{"id": "c_w", "wrong_answer": "w", "error_type": "logic_error", "explanation": "e"}],
     }
     _FILTER_RAW = {
         "id": "f_x", "tier": "filter", "cluster": "c", "topic": "t",
@@ -186,6 +186,49 @@ class QuestionBankTests(unittest.TestCase):
         self.assertEqual(self._load_one(dict(self._FILTER_RAW)).get("f_x").natural_correct_example, "")
         with self.assertRaises(QuestionBankError):
             self._load_one({**self._FILTER_RAW, "natural_correct_example": ""})
+
+    # -- stable misconception ids -------------------------------------------
+
+    def _with_misc_id(self, mid) -> dict:
+        misc = {**self._SOCRATIC_RAW["misconceptions"][0], "id": mid}
+        return {**self._SOCRATIC_RAW, "misconceptions": [misc]}
+
+    def test_misconception_id_required(self):
+        raw = {**self._SOCRATIC_RAW, "misconceptions": [{"wrong_answer": "w", "error_type": "logic_error", "explanation": "e"}]}
+        with self.assertRaises(QuestionBankError) as cm:
+            self._load_one(raw)
+        self.assertEqual(str(cm.exception), "question 's_x' misconception[0]: missing field 'id'")
+
+    def test_misconception_id_format(self):
+        for bad in ("", "Ct_Upper", "ct-dash", "1ct", "ct space", "ct\n", 7, None):
+            with self.subTest(id=bad):
+                with self.assertRaises(QuestionBankError) as cm:
+                    self._load_one(self._with_misc_id(bad))
+                self.assertIn("id must be lowercase snake_case", str(cm.exception))
+
+    def test_misconception_id_reserved(self):
+        # Other classifier example ids, the no-match value, and legacy positional ids.
+        for bad in ("natural_correct", "partial_example", "none", "m_0", "m_12"):
+            with self.subTest(id=bad):
+                with self.assertRaises(QuestionBankError) as cm:
+                    self._load_one(self._with_misc_id(bad))
+                self.assertIn("is reserved", str(cm.exception))
+        # m_ as a prefix of a semantic id is fine.
+        self.assertEqual(self._load_one(self._with_misc_id("m_zero")).get("s_x").misconceptions[0].id, "m_zero")
+
+    def test_duplicate_misconception_id_across_questions_rejects_bank(self):
+        # telemetry.bank_usage counts by bare id, so an id reused by another question is ambiguous.
+        second = {**self._SOCRATIC_RAW, "id": "s_y"}
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "bank.json"
+            p.write_text(json.dumps({"questions": [self._SOCRATIC_RAW, second]}), encoding="utf-8")
+            with self.assertRaises(QuestionBankError) as cm:
+                load_question_bank(p)
+        self.assertEqual(
+            str(cm.exception),
+            "duplicate misconception id 'c_w' in questions 's_x' and 's_y': misconception ids must be "
+            "unique across the whole bank (telemetry.bank_usage counts by bare id)",
+        )
 
 
 class BehavioralClassifierTests(unittest.TestCase):

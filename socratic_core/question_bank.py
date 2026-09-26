@@ -47,6 +47,15 @@ MIN_WORDS_RANGE: dict[str, tuple[int, int]] = {"filter": (1, 2), "socratic": (3,
 SOCRATIC_KEY_TERMS_RANGE = (1, 4)
 _CLUSTER_FORMAT = re.compile(r"^[a-z][a-z0-9_]*$")
 
+# Misconception ids: lowercase snake_case, unique across the whole bank,
+# cluster-prefixed and naming the student's belief ("ct_hypertrophy"). They
+# are the classifier's few-shot example IDs, so they must not collide with
+# the other example IDs, "none", or the old positional m_0, m_1, ... still
+# found in session logs written before stable ids existed.
+_MISCONCEPTION_ID_FORMAT = re.compile(r"[a-z][a-z0-9_]*")
+_LEGACY_POSITIONAL_ID = re.compile(r"m_\d+")
+RESERVED_MISCONCEPTION_IDS: frozenset[str] = frozenset({"natural_correct", "partial_example", "none"})
+
 ENV_QUESTION_BANK = "SOCRATIC_QUESTION_BANK"
 DEFAULT_BANK_FILENAME = "question_bank.json"
 DEFAULT_MIN_WORDS = 3
@@ -113,6 +122,8 @@ def crude_stem(token: str) -> str:
 
 @dataclass(frozen=True)
 class Misconception:
+    # Stable, semantic, bank-wide unique id (see _MISCONCEPTION_ID_FORMAT).
+    id: str
     wrong_answer: str
     error_type: ErrorType
     explanation: str
@@ -252,15 +263,23 @@ def default_bank_path() -> Path:
 def _parse_misconception(raw: dict, qid: str, idx: int) -> Misconception:
     where = f"question {qid!r} misconception[{idx}]"
     try:
+        mid = raw["id"]
         wrong = str(raw["wrong_answer"])
         etype = str(raw["error_type"])
     except KeyError as e:
         raise QuestionBankError(f"{where}: missing field {e}") from None
+    if not isinstance(mid, str) or not _MISCONCEPTION_ID_FORMAT.fullmatch(mid):
+        raise QuestionBankError(f"{where}: id must be lowercase snake_case (got {mid!r})")
+    if mid in RESERVED_MISCONCEPTION_IDS or _LEGACY_POSITIONAL_ID.fullmatch(mid):
+        raise QuestionBankError(
+            f"{where}: id {mid!r} is reserved (classifier example ids, 'none', and positional m_<n>)"
+        )
     if etype not in BANK_ERROR_TYPES:
         raise QuestionBankError(
             f"{where}: error_type {etype!r} not in {sorted(BANK_ERROR_TYPES)}"
         )
     return Misconception(
+        id=mid,
         wrong_answer=wrong,
         error_type=etype,  # type: ignore[arg-type]
         explanation=str(raw.get("explanation", "")),
@@ -398,6 +417,7 @@ def load_question_bank(path: str | os.PathLike[str] | None = None) -> QuestionBa
         raise QuestionBankError(f"{bank_path}: top-level 'questions' list missing")
     questions: list[Question] = []
     first_index: dict[str, int] = {}
+    misconception_owner: dict[str, str] = {}
     for i, raw in enumerate(raw_questions):
         q = _parse_question(raw, i)
         if q.id in first_index:
@@ -405,5 +425,13 @@ def load_question_bank(path: str | os.PathLike[str] | None = None) -> QuestionBa
                 f"duplicate id {q.id!r} found at indices {first_index[q.id]} and {i}"
             )
         first_index[q.id] = i
+        for m in q.misconceptions:
+            if m.id in misconception_owner:
+                raise QuestionBankError(
+                    f"duplicate misconception id {m.id!r} in questions "
+                    f"{misconception_owner[m.id]!r} and {q.id!r}: misconception ids must be "
+                    f"unique across the whole bank (telemetry.bank_usage counts by bare id)"
+                )
+            misconception_owner[m.id] = q.id
         questions.append(q)
     return QuestionBank(questions=questions, source_path=bank_path)

@@ -7,6 +7,7 @@ No model, no NPU, no network.
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import sys
 import unittest
 from pathlib import Path
@@ -232,7 +233,7 @@ class ClassifierLLMTests(unittest.TestCase):
     def _crowded(n: int = 40):
         """Q1 with a natural example and ``n`` long synthetic misconceptions."""
         miscs = tuple(
-            Misconception(f"synthetic wrong answer {i} " + "padding " * 30, "logic_error", f"why {i} is wrong")
+            Misconception(f"synthetic_{i}", f"synthetic wrong answer {i} " + "padding " * 30, "logic_error", f"why {i} is wrong")
             for i in range(n)
         )
         return dataclasses.replace(Q1, natural_correct_example="Old cells split to patch up the wound", misconceptions=miscs)
@@ -283,7 +284,8 @@ class ClassifierLLMTests(unittest.TestCase):
         sent = f"{NOISE_TOLERANCE_PREFIX} The body makes more of itself when you get hurt"
         budget = estimate_tokens(build_classifier_prompt(sent, dataclasses.replace(Q1, misconceptions=())))
         with patch.object(classifier_llm, "MAX_CONTEXT_TOKENS", budget):
-            self.assertEqual(run()["dropped_examples"], [f"m_{i}" for i in range(len(Q1.misconceptions))])
+            # Logged as stable bank ids: the prompt's m_<i> aliases never reach the log.
+            self.assertEqual(run()["dropped_examples"], ["ct_hypertrophy", "ct_spontaneous_generation"])
 
     def test_live_bank_under_budget_unchanged(self):
         # Every live socratic prompt fits: budgeted == unbudgeted, nothing dropped.
@@ -308,13 +310,17 @@ class ClassifierLLMTests(unittest.TestCase):
         ):
             with self.subTest(text=text):
                 self.assertEqual(parse_classifier_output(text)["matched_bank_id"], expected)
-        text = "LABEL: logic_error\nCONFIDENCE: 0.9\nMATCHED: m_1\nREASONING: Cells swell."
-        r = classify_llm("x", Q1, _ScriptedClient(text))
-        self.assertEqual((r["error_type"], r["matched_bank_id"]), ("logic_error", "m_1"))
+        # The parser returns the prompt alias; classify_llm translates it to the stable bank id.
+        for alias, bank_id in (("m_0", "ct_hypertrophy"), ("m_1", "ct_spontaneous_generation"),
+                               ("natural_correct", "natural_correct"), ("partial_example", "partial_example")):
+            with self.subTest(alias=alias):
+                text = f"LABEL: logic_error\nCONFIDENCE: 0.9\nMATCHED: {alias}\nREASONING: x"
+                r = classify_llm("x", Q1, _ScriptedClient(text))
+                self.assertEqual((r["error_type"], r["matched_bank_id"]), ("logic_error", bank_id))
 
     def test_parser_missing_matched_defaults_to_none(self):
         self.assertEqual(parse_classifier_output("LABEL: logic_error\nCONFIDENCE: 0.9")["matched_bank_id"], "none")
-        for garbage in ("MATCHED: the_second_one", "MATCHED: ???", "MATCHED:"):
+        for garbage in ("MATCHED: ???", "MATCHED:"):
             with self.subTest(garbage=garbage):
                 parsed = parse_classifier_output(f"LABEL: logic_error\nCONFIDENCE: 0.9\n{garbage}")
                 self.assertEqual(parsed["matched_bank_id"], "none")
@@ -322,10 +328,13 @@ class ClassifierLLMTests(unittest.TestCase):
         self.assertEqual(classify_llm("x", Q1, MockInferenceClient())["matched_bank_id"], "none")
         self.assertEqual(classify_llm("x", Q1, MockInferenceClient(fail_mode=True))["matched_bank_id"], "none")
         self.assertEqual(classify_llm("x", Q1, _GarbageClient())["matched_bank_id"], "none")
-        # An ID-shaped value that was not in this prompt is not a match.
-        absent = f"m_{len(Q1.misconceptions)}"
-        r = classify_llm("x", Q1, _ScriptedClient(f"LABEL: logic_error\nCONFIDENCE: 0.9\nMATCHED: {absent}"))
-        self.assertEqual(r["matched_bank_id"], "none")
+        # Only an alias this prompt showed is a match: not a made-up value, an alias past
+        # the end, this question's own bank id typed back (ids are not in the prompt),
+        # or another question's bank id.
+        for absent in ("the_second_one", f"m_{len(Q1.misconceptions)}", "ct_hypertrophy", "enz_shifts_equilibrium"):
+            with self.subTest(absent=absent):
+                r = classify_llm("x", Q1, _ScriptedClient(f"LABEL: logic_error\nCONFIDENCE: 0.9\nMATCHED: {absent}"))
+                self.assertEqual(r["matched_bank_id"], "none")
         # Nor is one the context budget dropped.
         r = classify_llm("x", Q1, _ScriptedClient("LABEL: logic_error\nCONFIDENCE: 0.9\nMATCHED: m_0"), budget=1)
         self.assertEqual(r["matched_bank_id"], "none")
@@ -345,6 +354,22 @@ class ClassifierLLMTests(unittest.TestCase):
             with self.subTest(example=f"m_{i}"):
                 self.assertIn(f"Example m_{i}:\nQuestion: {Q1.question_text}\nStudent answer: {m.wrong_answer}\n", prompt)
                 self.assertIn(f"LABEL: {m.error_type}\nCONFIDENCE: 0.95\nMATCHED: m_{i}\n", prompt)
+                # The model sees the alias, never the stable bank id.
+                self.assertNotIn(m.id, prompt)
+
+    def test_classifier_prompt_matches_head(self):
+        """Prompt rendering is byte-identical to pre-0a HEAD.
+
+        Semantic IDs are for the bank and log. The model sees positional
+        aliases so its behavior is unchanged. (Showing ct_* ids moved a
+        partial answer's MATCHED from partial_example to none on Local CPU.)
+        """
+        answer = f"{NOISE_TOLERANCE_PREFIX} Cells come from pre-existing things i guess"
+        prompt = classifier_llm._render_prompt(answer, Q1, classifier_llm._tagged_examples(Q1))
+        self.assertEqual(
+            hashlib.sha256(prompt.encode()).hexdigest(),
+            "001bfa92b913ea4fb7ffb141a3f0d113a1fd86ad643dbf9a6f0ad4209d1125d4",
+        )
 
     def test_classifier_prompt_includes_partial_example_id(self):
         prompt = build_classifier_prompt("x", Q1)

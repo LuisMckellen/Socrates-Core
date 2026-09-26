@@ -52,18 +52,24 @@ model's job is to match the student's phrasing against it. Because the
 question's misconceptions are in the prompt verbatim, an accuracy run should
 measure paraphrases of them, not the bank strings themselves.
 
-Each example is shown under its ID (``natural_correct``, ``partial_example``,
-``m_0``, ``m_1``, ...), and the model names the one the answer matches on a
-``MATCHED:`` line, or ``none``. It comes back as ``matched_bank_id`` for
-telemetry only; it never affects the label. A missing or unparseable
-``MATCHED:`` line, or an ID that was not in this prompt, is ``"none"``.
+Each example is shown under an alias (``natural_correct``,
+``partial_example``, ``m_0``, ``m_1``, ...), and the model names the one the
+answer matches on a ``MATCHED:`` line, or ``none``. The ``m_<i>`` aliases are
+positional and exist only inside one prompt: ``classify_llm`` translates the
+model's alias back to the misconception's stable bank id (``ct_hypertrophy``)
+before returning, so no alias reaches the log. Semantic ids are deliberately
+kept out of the prompt: showing them changed the model's MATCHED answer
+(step 0a trace: a partial answer went from ``partial_example`` to ``none``).
+It comes back as ``matched_bank_id`` for telemetry only; it never affects the
+label. A missing or unparseable ``MATCHED:`` line, or an alias that was not in
+this prompt, is ``"none"``.
 
 Context budget: the prompt is soft-capped at ``MAX_CONTEXT_TOKENS``
 (estimated as ``len(text) // 4``). System prompt, question and answer are
 always sent; examples are added in the order above while they fit, and the
 first one that does not fit is dropped along with everything after it. The
-dropped example IDs (``natural_correct``, ``partial_example``, ``m_0``,
-``m_1``, ...) come back as
+dropped examples (``natural_correct``, ``partial_example``, misconception
+ids, translated like ``matched_bank_id``) come back as
 ``dropped_examples`` so the state machine can log them. Every live bank
 question is well under budget today; this is headroom for bank growth.
 """
@@ -128,7 +134,7 @@ _LABEL_ANY = re.compile(rf"\b({'|'.join(_ERROR_LABELS)})\b", re.IGNORECASE)
 _CONFIDENCE = re.compile(r"CONFIDENCE\s*:\s*([0-9]*\.?[0-9]+)\s*(%?)", re.IGNORECASE)
 _REASONING = re.compile(r"REASONING\s*:\s*(.+)", re.IGNORECASE | re.DOTALL)
 _MATCHED = re.compile(rf"MATCHED\s*:{_LABEL_WRAP}([A-Za-z0-9_]+)", re.IGNORECASE)
-# Shape of an example ID; whether it was actually in the prompt is checked in classify_llm.
+# Shape of an example alias; whether it was actually in the prompt is checked in classify_llm.
 _EXAMPLE_ID = re.compile(rf"(?:{NATURAL_CORRECT_ID}|{PARTIAL_EXAMPLE_ID}|m_\d+)")
 
 
@@ -167,7 +173,7 @@ def _partial_example(question_text: str, key_terms: Any) -> Optional[tuple[str, 
 
 
 def _tagged_examples(question: Any) -> list[tuple[str, tuple[str, str, str, str]]]:
-    """``(example_id, example)`` pairs in prompt order."""
+    """``(alias, example)`` pairs in prompt order; see ``_alias_to_id`` for the stable ids."""
     question_text = str(_field(question, "question_text", ""))
     tagged: list[tuple[str, tuple[str, str, str, str]]] = []
 
@@ -194,6 +200,19 @@ def _tagged_examples(question: Any) -> list[tuple[str, tuple[str, str, str, str]
     return tagged
 
 
+def _alias_to_id(question: Any) -> dict[str, str]:
+    """Prompt alias -> id for the log: ``m_<i>`` -> the i-th misconception's bank id.
+
+    Built from the same bank order as ``_tagged_examples``, so an alias always
+    names the misconception it was rendered for. ``natural_correct`` and
+    ``partial_example`` are their own ids.
+    """
+    mapping = {NATURAL_CORRECT_ID: NATURAL_CORRECT_ID, PARTIAL_EXAMPLE_ID: PARTIAL_EXAMPLE_ID}
+    for i, m in enumerate(_field(question, "misconceptions", ()) or ()):
+        mapping[f"m_{i}"] = str(_field(m, "id", ""))
+    return mapping
+
+
 def few_shot_examples(question: Any) -> list[tuple[str, str, str, str]]:
     """natural_correct_example, the key-term partial example, then the bank misconceptions."""
     return [ex for _, ex in _tagged_examples(question)]
@@ -218,7 +237,7 @@ def _render_prompt(answer: str, question: Any, examples: list[tuple[str, tuple[s
 def build_classifier_prompt_with_dropped(
     answer: str, question: Any, budget: int = MAX_CONTEXT_TOKENS
 ) -> tuple[str, list[str]]:
-    """The budgeted prompt plus the IDs of the examples that did not fit."""
+    """The budgeted prompt plus the aliases of the examples that did not fit."""
     tagged = _tagged_examples(question)
     kept: list[tuple[str, tuple[str, str, str, str]]] = []
     for i, pair in enumerate(tagged):
@@ -236,7 +255,7 @@ def build_classifier_prompt(answer: str, question: Any, budget: int = MAX_CONTEX
 
 
 def parse_matched(text: str) -> str:
-    """The example ID on the ``MATCHED:`` line; ``"none"`` if missing or not ID-shaped."""
+    """The example alias on the ``MATCHED:`` line; ``"none"`` if missing or not alias-shaped."""
     m = _MATCHED.search(text)
     if m is None:
         return MATCHED_NONE
@@ -282,9 +301,10 @@ def classify_llm(answer: str, question: Any, client: Any, budget: Optional[int] 
 
     Returns ``{"error_type", "confidence", "reasoning", "matched_bank_id",
     "dropped_examples"}``; every fallback (see module docstring) lands on
-    ``logic_error`` and adds ``raw_output``. ``matched_bank_id`` is the ID of
-    an example that was in this prompt, or ``"none"``; a low-confidence reply
-    keeps the one it named. ``dropped_examples`` lists the example IDs the
+    ``logic_error`` and adds ``raw_output``. ``matched_bank_id`` is the stable
+    id (``natural_correct``, ``partial_example`` or a misconception's bank id)
+    of an example that was in this prompt, or ``"none"``; a low-confidence
+    reply keeps the one it named. ``dropped_examples`` lists the ids the
     context budget left out (usually empty). ``budget`` defaults to
     ``MAX_CONTEXT_TOKENS`` as read at call time. ``client`` is anything with
     ``.generate(prompt, max_tokens) -> dict`` in the ``InferenceClient``
@@ -294,10 +314,13 @@ def classify_llm(answer: str, question: Any, client: Any, budget: Optional[int] 
         answer, question, MAX_CONTEXT_TOKENS if budget is None else budget
     )
     result = _classify(client.generate(prompt, max_tokens=MAX_TOKENS))
-    offered = {ex_id for ex_id, _ in _tagged_examples(question)} - set(dropped)
-    if result["matched_bank_id"] not in offered:
-        result["matched_bank_id"] = MATCHED_NONE
-    return {**result, "dropped_examples": dropped}
+    alias_to_id = _alias_to_id(question)
+    # Membership first, on aliases: only an alias this prompt actually showed
+    # may be translated. A bank id typed back by the model is not an alias.
+    offered = {alias for alias, _ in _tagged_examples(question)} - set(dropped)
+    alias = result["matched_bank_id"]
+    result["matched_bank_id"] = alias_to_id[alias] if alias in offered else MATCHED_NONE
+    return {**result, "dropped_examples": [alias_to_id[a] for a in dropped]}
 
 
 def _classify(result: Mapping[str, Any]) -> dict:

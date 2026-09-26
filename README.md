@@ -28,6 +28,11 @@ classification layer resolved the last turn and how long the model took.
 python -m pytest tests/
 ```
 
+Expected counts: WSL (socvenv, llama-cpp installed) runs every test. Windows
+(no llama-cpp) reports one extra skip: `LocalClientTests` is skipped as a
+whole class, which holds 2 tests, so Windows shows 2 fewer passed and 1
+skipped.
+
 ## Roadmap
 
 - LlamaRAMCache deferred; best-case 3.7s on retries only; not the dominant cost.

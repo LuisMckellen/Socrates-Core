@@ -46,11 +46,13 @@
       "min_words": 5,
       "misconceptions": [
         {
+          "id": "ct_hypertrophy",
           "wrong_answer": "Wounds heal because damaged tissue cells absorb surrounding nutrients and swell in size until the empty space in the tissue is filled.",
           "error_type": "logic_error",
           "explanation": "Recovery and growth rely on cell division from pre-existing cells (hyperplasia), not on individual cells enlarging (hypertrophy)."
         },
         {
+          "id": "ct_spontaneous_generation",
           "wrong_answer": "New cells form spontaneously from an acellular matrix or fluid at the wound site to rebuild the missing tissue.",
           "error_type": "logic_error",
           "explanation": "All new cells arise from division of pre-existing living cells (Virchow's postulate). Extracellular fluid cannot coalesce into structured tissue."
@@ -77,11 +79,13 @@
       "min_words": 5,
       "misconceptions": [
         {
+          "id": "ct_organelles_are_organisms",
           "wrong_answer": "Mitochondria and chloroplasts are independent living organisms inside cells because they have their own DNA, ribosomes, and double membranes.",
           "error_type": "logic_error",
           "explanation": "Organelles are dependent components of the host cell. Endosymbiotic origins do not make them autonomous — they cannot maintain independent metabolism or self-sustained survival outside the cell."
         },
         {
+          "id": "ct_one_process_means_alive",
           "wrong_answer": "Mitochondria are considered alive because they perform a life process — energy production — and anything that performs a life process must itself be alive.",
           "error_type": "logic_error",
           "explanation": "Life requires integrated, self-sustaining metabolism across all processes. No single organelle performs all of them. Mitochondria make ATP but cannot replicate, regulate, or maintain homeostasis on their own."
@@ -136,11 +140,13 @@
       "min_words": 5,
       "misconceptions": [
         {
+          "id": "pe_ribosome_reads_dna",
           "wrong_answer": "Bacterial ribosomes can translate DNA directly while RNA polymerase is unwinding it, skipping the need for an mRNA intermediate.",
           "error_type": "logic_error",
           "explanation": "Ribosomes strictly read mRNA, not DNA. Transcription into mRNA must occur first, even though translation begins on the nascent mRNA strand while transcription is still running."
         },
         {
+          "id": "pe_polymerase_ribosome_would_collide",
           "wrong_answer": "RNA polymerase and the ribosome cannot work on the same mRNA molecule at the same time because they would physically collide on the strand.",
           "error_type": "logic_error",
           "explanation": "Co-transcriptional translation works because the ribosome trails behind RNA polymerase on the nascent mRNA. They occupy different positions on the same strand; synthesis and translation are coordinated, not colliding."
@@ -167,11 +173,13 @@
       "min_words": 5,
       "misconceptions": [
         {
+          "id": "pe_membranes_hold_up_cell",
           "wrong_answer": "Eukaryotic cells can grow larger because internal organelle membranes act as structural scaffolding that physically holds up the larger cell and prevents it from collapsing.",
           "error_type": "logic_error",
           "explanation": "Membrane compartmentalization enables larger volume by overcoming diffusion limits and localizing reactions, not by mechanical support. Structural integrity comes from the cytoskeleton and cell wall."
         },
         {
+          "id": "pe_more_molecules_faster_reactions",
           "wrong_answer": "Larger eukaryotic cells simply produce many more total molecules throughout the cytosol, which naturally speeds up reactions to keep up with the increased volume.",
           "error_type": "logic_error",
           "explanation": "Reaction rates depend on local concentration, not total molecule count. As volume increases, uncompartmentalized reactants dilute and diffusion-limited collision rates slow down."
@@ -227,11 +235,13 @@
       "min_words": 5,
       "misconceptions": [
         {
+          "id": "org_er_ribosomes_structurally_distinct",
           "wrong_answer": "Ribosomes on the rough ER are structurally different from free ribosomes, with specialized subunits permanently assigned to synthesize ER-bound proteins.",
           "error_type": "logic_error",
           "explanation": "Ribosomes are structurally identical and interchangeable. Their location is determined by the signal sequence on the nascent polypeptide, not by structural specialization."
         },
         {
+          "id": "org_targeting_after_translation",
           "wrong_answer": "The ER signal sequence acts as a zip code that directs the ribosome to the ER after protein translation is completely finished.",
           "error_type": "logic_error",
           "explanation": "Targeting is co-translational. SRP binds the signal peptide mid-translation and pauses synthesis until the ribosome docks at the ER membrane — not after translation finishes."
@@ -259,11 +269,13 @@
       "min_words": 5,
       "misconceptions": [
         {
+          "id": "org_rupture_acidifies_cytosol",
           "wrong_answer": "Lysosomes contain their own internal acidic fluid, so if a lysosome ruptures the released acid will lower the whole cytoplasm's pH and destroy the cell.",
           "error_type": "logic_error",
           "explanation": "The cytoplasm has high buffering capacity and vastly larger volume than a single lysosome, so local proton release cannot significantly shift cytosolic pH."
         },
         {
+          "id": "org_lysosome_is_only_barrier",
           "wrong_answer": "Hydrolytic enzymes are kept inside lysosomes mainly to stop them from floating around and colliding with cytosolic organelles, independent of pH.",
           "error_type": "logic_error",
           "explanation": "Sequestration works together with pH regulation. The lysosome provides the acidic microenvironment the enzymes require, not just a physical barrier."
@@ -319,11 +331,13 @@
       "min_words": 5,
       "misconceptions": [
         {
+          "id": "dna_polymerase_builds_3_to_5",
           "wrong_answer": "DNA polymerase synthesizes the lagging strand in the 3' to 5' direction so both daughter strands can grow continuously as the fork opens.",
           "error_type": "logic_error",
           "explanation": "All DNA polymerases synthesize strictly 5' to 3', adding nucleotides only to the 3'-OH end. The lagging strand cannot grow continuously in the fork direction."
         },
         {
+          "id": "dna_strands_move_opposite_ways",
           "wrong_answer": "Because the leading strand grows toward the fork and the lagging strand grows away from it, the two strands are synthesized in physically opposite directions in the cell.",
           "error_type": "logic_error",
           "explanation": "Both polymerases are part of one replisome moving forward with the fork. The lagging-strand template loops so synthesis is discontinuous in time, not reversed in physical direction."
@@ -351,11 +365,13 @@
       "min_words": 5,
       "misconceptions": [
         {
+          "id": "dna_whole_helix_conserved",
           "wrong_answer": "DNA replication is semi-conservative because half of the original double helices are kept unchanged while the other half are completely new.",
           "error_type": "logic_error",
           "explanation": "Semi-conservative replication operates at the level of single strands. Every daughter double helix contains one intact parental strand paired with one newly synthesized strand — this is the conservative model confusion."
         },
         {
+          "id": "dna_parent_strands_fragment",
           "wrong_answer": "In semi-conservative replication, parental strands break into small fragments that mix randomly with new fragments, making each strand a patchwork of old and new DNA.",
           "error_type": "logic_error",
           "explanation": "Parental strands remain continuous and intact throughout replication. They serve as uninterrupted linear templates for new complementary strand synthesis — this is the dispersive model confusion."
@@ -409,16 +425,19 @@
   "min_words": 5,
   "misconceptions": [
     {
+      "id": "cc_checkpoint_repairs_dna",
       "wrong_answer": "The G2 checkpoint is basically a repair crew that actively fixes any broken or missing DNA strands before letting the cell divide.",
       "error_type": "logic_error",
       "explanation": "Checkpoints are signalling pauses, not repair agents. Separate enzymatic pathways repair DNA; the checkpoint only halts the cycle until repair is done."
     },
     {
+      "id": "cc_g2_checks_spindle_attachment",
       "wrong_answer": "The G2 checkpoint checks to make sure all the chromosomes are successfully attached to spindle fibers so they can be pulled apart evenly.",
       "error_type": "logic_error",
       "explanation": "G2 verifies DNA replication completeness before mitosis. Spindle attachment is monitored later by the spindle assembly checkpoint (M checkpoint) during metaphase."
     },
     {
+      "id": "cc_unreplicated_dna_instant_death",
       "wrong_answer": "If the DNA isn't fully copied by the end of G2, the cell just immediately destroys itself because it can't handle errors.",
       "error_type": "logic_error",
       "explanation": "The G2 checkpoint halts the cycle temporarily to allow replication to finish. Immediate apoptosis is not the first response — pause-and-repair precedes any destructive outcome."
@@ -444,11 +463,13 @@
   "min_words": 5,
   "misconceptions": [
     {
+      "id": "cc_unaligned_chromosomes_disintegrate",
       "wrong_answer": "If chromosomes aren't lined up on the metaphase plate, they just get left behind in the middle and disintegrate, which is why the daughter cells end up with the wrong number of chromosomes.",
       "error_type": "logic_error",
       "explanation": "Unaligned or improperly attached chromosomes are subjected to active, unequal mechanical pulling forces from spindle microtubules — not targeted for localized degradation. Missegregation, not disintegration, produces aneuploidy."
     },
     {
+      "id": "cc_alignment_triggers_anaphase",
       "wrong_answer": "Chromosomes have to line up neatly in the middle because that physical row formation is what mechanically trips the switch to pull the sister chromatids apart.",
       "error_type": "logic_error",
       "explanation": "Anaphase onset is regulated by a biochemical cascade (spindle assembly checkpoint and APC/C activation) responding to kinetochore tension and attachment — not by a mechanical trigger from visual alignment."
@@ -502,11 +523,13 @@
   "min_words": 5,
   "misconceptions": [
     {
+      "id": "bm_tails_attract_like_magnets",
       "wrong_answer": "The hydrophobic tails of the lipids stick together because they are chemically attracted to each other, like magnets pulling together.",
       "error_type": "logic_error",
       "explanation": "Hydrophobic interactions are driven by entropy maximization of surrounding water molecules, not by direct adhesive attraction or bonding between the nonpolar tails."
     },
     {
+      "id": "bm_bilayer_needs_atp",
       "wrong_answer": "The cell uses ATP energy to actively arrange the lipids into a double layer so it can create a sealed container.",
       "error_type": "logic_error",
       "explanation": "Membrane self-assembly is spontaneous — driven by the hydrophobic effect and lipid geometry. No direct metabolic energy input is required for bilayer formation."
@@ -532,11 +555,13 @@
   "min_words": 5,
   "misconceptions": [
     {
+      "id": "bm_bigger_molecules_more_energy",
       "wrong_answer": "Fats store more energy per gram simply because they are larger molecules with more total carbon and hydrogen atoms to burn through.",
       "error_type": "logic_error",
       "explanation": "Energy yield per gram depends on the oxidation state of carbon — the density of reduced C-H bonds relative to C-O bonds — not on absolute molecular size or total atom count."
     },
     {
+      "id": "bm_high_energy_bonds",
       "wrong_answer": "Fat molecules contain special 'high-energy' bonds in their long hydrocarbon tails that snap apart and release extra power compared to carbohydrate bonds.",
       "error_type": "logic_error",
       "explanation": "Energy is released through progressive oxidation of carbon via electron transfer to NAD+ and FAD, not through breaking uniquely energized covalent bonds."
@@ -590,16 +615,19 @@
       "min_words": 5,
       "misconceptions": [
         {
+          "id": "enz_shifts_equilibrium",
           "wrong_answer": "Enzymes can push a reaction to produce more product than normal by shifting the chemical equilibrium in favor of the products.",
           "error_type": "logic_error",
           "explanation": "Enzymes accelerate the rate at which equilibrium is reached but do not alter the equilibrium constant or the thermodynamic yield of the reaction."
         },
         {
+          "id": "enz_lowers_delta_g",
           "wrong_answer": "Enzymes make unfavorable reactions happen by lowering the overall free energy change so the reaction becomes spontaneous.",
           "error_type": "logic_error",
           "explanation": "Enzymes do not alter the overall free energy change (ΔG). They only reduce the activation energy barrier required to reach the transition state."
         },
         {
+          "id": "enz_energy_donor",
           "wrong_answer": "The enzyme helps the reaction go faster by acting as an energy source, donating its own chemical energy to the reactants to give them a boost.",
           "error_type": "logic_error",
           "explanation": "Enzymes are catalysts. They lower the activation energy barrier through transition-state stabilization without being consumed or acting as a net energy source."
@@ -625,11 +653,13 @@
       "min_words": 5,
       "misconceptions": [
         {
+          "id": "enz_mechanical_vise",
           "wrong_answer": "The enzyme acts like a physical vise or clamp that forcefully crushes and bends the substrate into shape using mechanical pressure.",
           "error_type": "logic_error",
           "explanation": "Enzyme catalysis and induced fit rely on thermodynamic stabilization of the transition state through non-covalent interactions (hydrogen bonding, charge matching) — not on macro-scale mechanical force or compression."
         },
         {
+          "id": "enz_shapeless_active_site",
           "wrong_answer": "Induced fit means the enzyme's active site is completely shapeless and flexible beforehand, so it can mold itself to fit almost any molecule that enters.",
           "error_type": "logic_error",
           "explanation": "Catalytic specificity is preserved. The conformational change of induced fit is only triggered by the correct substrate's specific binding interactions, not by any molecule."
@@ -683,16 +713,19 @@
       "min_words": 5,
       "misconceptions": [
         {
+          "id": "ga_mutation_is_intelligent",
           "wrong_answer": "Mutation acts like an intelligent corrective tool that deliberately fixes bad traits when the algorithm gets stuck so it can find the right path.",
           "error_type": "logic_error",
           "explanation": "Mutation is a random stochastic operator that alters gene values blindly. It has no foresight, intent, or knowledge of the global optimum."
         },
         {
+          "id": "ga_mutation_searches_exhaustively",
           "wrong_answer": "Mutation systematically scans every possible corner of the search space that the population hasn't visited yet, guaranteeing it will eventually find a better peak.",
           "error_type": "logic_error",
           "explanation": "Mutation introduces random, localized perturbations to individual solutions. It does not execute a comprehensive or systematic exploration of the entire state space."
         },
         {
+          "id": "ga_escape_needs_full_rewrite",
           "wrong_answer": "To escape a local optimum, the mutation operator has to completely wipe out and rewrite the entire chromosome of every individual.",
           "error_type": "logic_error",
           "explanation": "Escaping local optima relies on small, low-probability stochastic gene alterations distributed across a diverse population — not total structural rewrites."
@@ -718,11 +751,13 @@
       "min_words": 5,
       "misconceptions": [
         {
+          "id": "ga_early_peak_is_global",
           "wrong_answer": "If an early candidate gets a really high fitness score, the algorithm has found the absolute best solution, so locking onto it quickly is a good thing.",
           "error_type": "logic_error",
           "explanation": "A high score in early generations typically reflects a local optimum, not the global one. Aggressive selection stops the search from exploring alternative, potentially superior regions."
         },
         {
+          "id": "ga_deletes_bad_genes",
           "wrong_answer": "Greedy selection causes premature convergence because the program actively deletes all the bad genes from memory right at the start.",
           "error_type": "logic_error",
           "explanation": "Diversity is lost because fitter variants out-reproduce and crowd out other lineages over generations — not through active programmatic deletion of non-selected genetic material."

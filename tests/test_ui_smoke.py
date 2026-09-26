@@ -258,11 +258,11 @@ class TestUISmoke(unittest.TestCase):
         history = [
             {"event": "answer", "attempt_number": 1, "matched_bank_id": None, "elapsed_ms": 0, "hint_text": ""},
             {"event": "answer", "attempt_number": 2, "matched_bank_id": "none", "elapsed_ms": 812, "hint_text": long_hint},
-            {"event": "answer", "attempt_number": 1, "matched_bank_id": "m_1", "elapsed_ms": 9, "hint_text": "Short?"},
+            {"event": "answer", "attempt_number": 1, "matched_bank_id": "ct_spontaneous_generation", "elapsed_ms": 9, "hint_text": "Short?"},
             {"event": "answer"},  # a log from before these fields existed
         ]
         rows = state.answer_rows(history)
-        self.assertEqual([r["matched_bank_id"] for r in rows], ["—", "no match", "m_1", "—"])
+        self.assertEqual([r["matched_bank_id"] for r in rows], ["—", "no match", "ct_spontaneous_generation", "—"])
         self.assertEqual([r["attempt_number"] for r in rows], [1, 2, 1, None])
         self.assertEqual([r["elapsed_ms"] for r in rows], [0, 812, 9, None])
         self.assertEqual([r["hint_text"] for r in rows], ["", "x" * 40 + "…", "Short?", ""])

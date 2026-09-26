@@ -145,8 +145,10 @@ VerifyFn = Callable[[Question, str], bool]
 #                 The Case A YES/NO verify call is not the classifier.
 #   "none"        invoked or attempted (including a raising classifier and the
 #                 offline default_classifier) and matched no example
-#   "m_0", "m_1", ..., "natural_correct", "partial_example"
-#                 invoked and matched that few-shot example
+#   a misconception's stable bank id (e.g. "ct_hypertrophy"),
+#   "natural_correct", "partial_example"
+#                 invoked and matched that few-shot example. Logs written
+#                 before stable ids carry positional "m_0", "m_1", ... instead.
 MatchedBankId = Optional[str]
 
 

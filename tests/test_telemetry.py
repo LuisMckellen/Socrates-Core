@@ -24,21 +24,21 @@ def _answer(**fields):
 class TelemetryTests(unittest.TestCase):
     def test_bank_usage_counts(self):
         turns = [
-            _answer(matched_bank_id="m_0"),
-            _answer(matched_bank_id="m_0"),
-            _answer(matched_bank_id="m_1"),
+            _answer(matched_bank_id="ct_hypertrophy"),
+            _answer(matched_bank_id="ct_hypertrophy"),
+            _answer(matched_bank_id="ct_spontaneous_generation"),
             _answer(matched_bank_id="natural_correct"),
             _answer(matched_bank_id="partial_example"),
             # Non-answer events never count, whatever they carry.
-            {"event": "llm_classify", "matched_bank_id": "m_0"},
+            {"event": "llm_classify", "matched_bank_id": "ct_hypertrophy"},
         ]
         usage = bank_usage(turns)
-        self.assertEqual(usage, Counter({"m_0": 2, "m_1": 1, "natural_correct": 1, "partial_example": 1}))
+        self.assertEqual(usage, Counter({"ct_hypertrophy": 2, "ct_spontaneous_generation": 1, "natural_correct": 1, "partial_example": 1}))
         self.assertTrue(all(isinstance(k, str) for k in usage))
 
     def test_bank_usage_skips_none(self):
-        turns = [_answer(matched_bank_id=None), _answer(matched_bank_id="none"), _answer(matched_bank_id="m_1")]
-        self.assertEqual(bank_usage(turns), Counter({"m_1": 1}))
+        turns = [_answer(matched_bank_id=None), _answer(matched_bank_id="none"), _answer(matched_bank_id="ct_spontaneous_generation")]
+        self.assertEqual(bank_usage(turns), Counter({"ct_spontaneous_generation": 1}))
 
     def test_telemetry_empty_input(self):
         self.assertEqual(bank_usage([]), Counter())
@@ -58,8 +58,8 @@ class TelemetryTests(unittest.TestCase):
         self.assertEqual(case_a_failure_rate(legacy), 0.0)
         self.assertEqual(cloud_fallback_rate(legacy), 0.0)
         # Mixed with new-shape entries: missing fields count as None.
-        mixed = legacy + [_answer(matched_bank_id="m_0", case_a_verified=False, cloud_fallback_used=True)]
-        self.assertEqual(bank_usage(mixed), Counter({"m_0": 1}))
+        mixed = legacy + [_answer(matched_bank_id="ct_hypertrophy", case_a_verified=False, cloud_fallback_used=True)]
+        self.assertEqual(bank_usage(mixed), Counter({"ct_hypertrophy": 1}))
         self.assertEqual(case_a_failure_rate(mixed), 1.0)
         self.assertAlmostEqual(cloud_fallback_rate(mixed), 1 / 3)
 

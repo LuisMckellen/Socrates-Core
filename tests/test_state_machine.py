@@ -76,9 +76,9 @@ S_CELL = {
     "key_terms": ["cell", "division"],
     "min_words": 3,
     "misconceptions": [
-        {"wrong_answer": "the atom is the unit", "error_type": "logic_error", "explanation": "Atoms are not alive."},
-        {"wrong_answer": "the organ is the unit", "error_type": "logic_error", "explanation": "Organs are made of cells."},
-        {"wrong_answer": "the smallest living thing", "error_type": "logic_error", "explanation": "Name it: the cell."},
+        {"id": "ct_atom_is_unit", "wrong_answer": "the atom is the unit", "error_type": "logic_error", "explanation": "Atoms are not alive."},
+        {"id": "ct_organ_is_unit", "wrong_answer": "the organ is the unit", "error_type": "logic_error", "explanation": "Organs are made of cells."},
+        {"id": "ct_smallest_living_thing", "wrong_answer": "the smallest living thing", "error_type": "logic_error", "explanation": "Name it: the cell."},
     ],
     "answer_explanation": "Every living thing is made of one or more cells.",
     "fallback_hint": "What is the smallest part of your body that is still alive on its own?",
@@ -883,9 +883,9 @@ class LLMVerdictTests(unittest.TestCase):
         self.assertEqual(matched(make_classifier_fn(MockInferenceClient()), self.NATURAL), "none")
         self.assertEqual(matched(Mock(side_effect=RuntimeError("boom")), self.NATURAL), "none")
         self.assertEqual(matched(None, self.NATURAL), "none")  # offline default_classifier
-        # Invoked and matched -> the example ID.
+        # Invoked and matched -> the stable bank id (the model names the prompt alias m_0).
         text = "LABEL: logic_error\nCONFIDENCE: 0.9\nMATCHED: m_0\nREASONING: swelling"
-        self.assertEqual(matched(make_classifier_fn(_ScriptedClient(text)), self.NATURAL), "m_0")
+        self.assertEqual(matched(make_classifier_fn(_ScriptedClient(text)), self.NATURAL), "ct_hypertrophy")
 
     def test_answer_event_logs_backend(self):
         label = "Local CPU (~7s)"

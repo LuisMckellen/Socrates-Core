@@ -27,6 +27,11 @@ def _answers(turns: Iterable[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
 def bank_usage(turns: Iterable[Mapping[str, Any]]) -> Counter:
     """How often each few-shot example was matched, keyed by example ID (str).
 
+    Keys are bare IDs with no question id: correct because misconception ids
+    are unique across the bank (question_bank rejects duplicates). Logs from
+    before stable ids carry positional "m_0", "m_1", ..., which collide
+    across questions and count as their own keys.
+
     Skips turns that never reached the LLM (None) and turns where it matched
     nothing ("none"). Empty input -> ``Counter()``.
     """
