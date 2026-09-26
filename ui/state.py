@@ -82,13 +82,12 @@ def question_ids_for_clusters(bank: QuestionBank, clusters: Iterable[str]) -> li
 # -- backends -----------------------------------------------------------------
 
 
-def make_client(backend_label: str, bank: Optional[QuestionBank] = None) -> Any:
+def make_client(backend_label: str) -> Any:
     """The generate()-shaped client for a sidebar backend label.
 
     ``InferenceClient`` (NPU) is deliberately absent: it only runs on ARM64.
     ``GroqClient`` raises ``GroqConfigError`` without a key; the sidebar
-    checks ``groq_available()`` before offering the switch. With ``bank``,
-    the mock classifies that bank's partial demo presets as partial.
+    checks ``groq_available()`` before offering the switch.
 
     An unknown label raises ``ValueError``: falling back to the mock would
     silently grade a "local" session with canned answers (a label persisted
@@ -99,11 +98,7 @@ def make_client(backend_label: str, bank: Optional[QuestionBank] = None) -> Any:
     if backend_label == BACKEND_GROQ:
         return GroqClient()
     if backend_label == BACKEND_MOCK:
-        if bank is None:
-            return MockInferenceClient()
-        from .student_view import mock_label_overrides  # deferred: student_view imports this module
-
-        return MockInferenceClient(label_overrides=mock_label_overrides(bank))
+        return MockInferenceClient()
     raise ValueError(f"unknown backend label {backend_label!r}; expected one of {BACKEND_LABELS}")
 
 
@@ -272,7 +267,7 @@ def get_bank() -> QuestionBank:
 
 @st.cache_resource(show_spinner="Loading backend…")
 def get_client(backend_label: str) -> Any:
-    return make_client(backend_label, get_bank())
+    return make_client(backend_label)
 
 
 def init_state() -> None:

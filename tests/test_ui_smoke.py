@@ -24,7 +24,7 @@ sys.path.insert(0, str(ROOT))
 from socratic_core.classifier_llm import make_classifier_fn, make_verify_fn  # noqa: E402
 from socratic_core.mock_client import MockInferenceClient  # noqa: E402
 from socratic_core.question_bank import load_question_bank  # noqa: E402
-from socratic_core.state_machine import ENV_SESSIONS_DIR, SocraticSession  # noqa: E402
+from socratic_core.state_machine import ENV_SESSIONS_DIR, SocraticSession, TurnResult  # noqa: E402
 from ui import state, student_view  # noqa: E402
 
 
@@ -123,17 +123,77 @@ class TestUISmoke(unittest.TestCase):
         self.assertEqual(second[0].get("event"), "llm_classify")
         self.assertIsNotNone(state.find_event(second, "answer"))
 
-    def test_build_presets_socratic_has_three_to_four(self) -> None:
-        socratic = [q for q in self.bank if q.tier == "socratic"]
+    def test_build_presets_socratic_has_three(self) -> None:
+        socratic = [q for q in self.bank if q.tier == "socratic" and q.id != student_view.CELL_THEORY_L1]
         self.assertTrue(socratic)
         for question in socratic:
-            presets = student_view.build_presets(question)
             with self.subTest(question=question.id):
-                self.assertTrue(3 <= len(presets) <= 4, presets)
-                self.assertEqual(presets[0], student_view.PRESET_GIVE_UP)
-                self.assertEqual(presets[-1], question.correct_answer)
-                self.assertEqual(presets[1], question.misconceptions[0].wrong_answer)
-                self.assertEqual(len(set(presets)), len(presets))
+                self.assertEqual(
+                    student_view.build_presets(question),
+                    [
+                        student_view.PRESET_GIVE_UP,
+                        question.misconceptions[0].wrong_answer,
+                        question.correct_answer,
+                    ],
+                )
+
+    def test_build_presets_cell_theory_L1(self) -> None:
+        question = self.bank.get(student_view.CELL_THEORY_L1)
+        self.assertEqual(
+            student_view.build_presets(question),
+            [
+                "No idea",
+                "Wounds heal because damaged tissue cells absorb surrounding nutrients and swell "
+                "in size until the empty space in the tissue is filled.",
+                "Cells divide because they don't divide",
+                "Pre-existing cells undergo division to form new tissue",
+            ],
+        )
+        self.assertEqual(question.misconceptions[0].id, "ct_hypertrophy")
+        # The contradiction is a manual string, not a bank misconception.
+        self.assertNotIn(
+            student_view.CELL_THEORY_L1_CONTRADICTION, [m.wrong_answer for m in question.misconceptions]
+        )
+        # The correct preset is Case A (both key terms), not a bank string: verify_fn runs.
+        correct = student_view.CELL_THEORY_L1_CORRECT
+        self.assertFalse(question.is_correct(correct))
+        self.assertEqual(SocraticSession._classify_by_key_terms(question, correct)[0], "correct")
+
+    def test_cell_theory_L1_presets_mock_mode(self) -> None:
+        """Each L1 preset, from a fresh first attempt, on the mock backend."""
+        client = state.make_client(state.BACKEND_MOCK)
+        question = self.bank.get(student_view.CELL_THEORY_L1)
+        expected = [
+            ("low_effort", "hint", student_view.MODE_PROBE),
+            ("wrong", "hint", student_view.MODE_PROBE),
+            ("wrong", "hint", student_view.MODE_PROBE),
+            ("correct", "correct", student_view.MODE_FINISHED),  # the only question: advancing ends it
+        ]
+        for preset, (verdict, kind, mode) in zip(student_view.build_presets(question), expected):
+            session = SocraticSession(
+                self.bank, question_ids=[question.id], classifier_fn=make_classifier_fn(client),
+                verify_fn=make_verify_fn(client),
+            )
+            result = session.submit_answer(preset)
+            with self.subTest(preset=preset):
+                self.assertEqual(state.last_answer_event(session.state.history)["verdict"], verdict)
+                self.assertEqual(result.kind, kind)
+                self.assertEqual(student_view.render_mode(result), mode)
+
+    def test_render_mode(self) -> None:
+        def result(kind: str, finished: bool = False) -> TurnResult:
+            return TurnResult(kind=kind, question_id="q", attempt=1, message="m", session_finished=finished)
+
+        self.assertEqual(student_view.render_mode(None), "bank")
+        self.assertEqual(student_view.render_mode(result("hint")), "probe")
+        for kind in ("correct", "escalated", "filter_escalated", "filter_missed"):
+            with self.subTest(kind=kind):
+                self.assertEqual(student_view.render_mode(result(kind)), "escalate")
+                # The final turn carries an advancing kind too; finished wins.
+                self.assertEqual(student_view.render_mode(result(kind, finished=True)), "finished")
+        self.assertEqual(student_view.submit_label("probe"), "Revise")
+        for mode in ("bank", "escalate"):
+            self.assertEqual(student_view.submit_label(mode), "Submit Answer")
 
     def test_build_presets_filter_has_two(self) -> None:
         filters = [q for q in self.bank if q.tier == "filter"]
@@ -145,34 +205,8 @@ class TestUISmoke(unittest.TestCase):
                     [student_view.PRESET_GIVE_UP, question.correct_answer],
                 )
 
-    def test_partial_preset_misses_one_key_term(self) -> None:
-        """The partial preset must miss exactly one key term and reach the LLM.
-
-        Since Phase 3 a partial lexical match is not a verdict: it falls
-        through to the LLM classifier, which decides partial. Asserted against
-        the state machine's own key-terms check rather than a re-implementation.
-        """
-        checked = 0
-        for question in self.bank:
-            if question.tier != "socratic":
-                continue
-            presets = student_view.build_presets(question)
-            if len(presets) < 4:
-                continue
-            verdict, matched, missing = SocraticSession._classify_by_key_terms(
-                question, presets[2]
-            )
-            with self.subTest(question=question.id):
-                self.assertIsNone(verdict)  # not Case A -> the LLM classifier decides
-                self.assertEqual(missing, [question.key_terms[0]])
-                self.assertTrue(matched)
-                self.assertFalse(question.is_correct(presets[2]))
-            checked += 1
-        self.assertEqual(checked, len([q for q in self.bank if q.tier == "socratic"]))
-
-
-    def test_submit_keeps_answer_in_draft(self) -> None:
-        """The graded answer stays in the box so it sits beside its verdict."""
+    def test_submit_clears_draft_on_advance(self) -> None:
+        """The graded answer stays beside its verdict; "Next question" clears it."""
         session = state.build_session(
             self.bank, ["cell_theory"], client=MockInferenceClient()
         )
@@ -192,10 +226,10 @@ class TestUISmoke(unittest.TestCase):
         self.assertEqual(stub.session_state.sc_turn_count, 1)
         self.assertEqual(stub.session_state.sc_last_result.kind, "correct")
 
-        # Dismissing feedback must not disturb the preserved answer.
+        # "Next question" after an advance clears it: it answered the old question.
         with mock.patch.object(student_view, "st", stub):
             student_view._dismiss_feedback()
-        self.assertEqual(stub.session_state.sc_answer_draft, question.correct_answer)
+        self.assertEqual(stub.session_state.sc_answer_draft, "")
         self.assertIsNone(stub.session_state.sc_last_result)
 
         # A preset click overwrites it; a blank submit is ignored.
@@ -239,7 +273,6 @@ class TestUISmoke(unittest.TestCase):
             state.make_client("")
         # Known labels route explicitly (Local and Groq need a model / key, so only Mock is built here).
         self.assertIsInstance(state.make_client(state.BACKEND_MOCK), MockInferenceClient)
-        self.assertIsInstance(state.make_client(state.BACKEND_MOCK, self.bank), MockInferenceClient)
 
     def test_llm_called_true_on_groq_fallback(self) -> None:
         self.assertTrue(state.llm_called("llm_groq_fallback"))
@@ -266,26 +299,6 @@ class TestUISmoke(unittest.TestCase):
         self.assertEqual([r["attempt_number"] for r in rows], [1, 2, 1, None])
         self.assertEqual([r["elapsed_ms"] for r in rows], [0, 812, 9, None])
         self.assertEqual([r["hint_text"] for r in rows], ["", "x" * 40 + "…", "Short?", ""])
-
-    def test_partial_preset_is_partial_in_mock_mode(self) -> None:
-        """The mock backend classifies each partial preset, verbatim, as partial."""
-        client = state.make_client(state.BACKEND_MOCK, self.bank)
-        for question in self.bank:
-            if question.tier != "socratic":
-                continue
-            presets = student_view.build_presets(question)
-            if len(presets) < 4:
-                continue
-            session = SocraticSession(
-                self.bank, question_ids=[question.id], classifier_fn=make_classifier_fn(client),
-                verify_fn=make_verify_fn(client),
-            )
-            session.submit_answer(presets[2])
-            with self.subTest(question=question.id):
-                self.assertEqual(state.last_answer_event(session.state.history)["verdict"], "partial")
-        # The override is exact-string only: the preset text itself is unchanged.
-        self.assertNotIn("partial", " ".join(student_view.mock_label_overrides(self.bank)).lower())
-
 
 if __name__ == "__main__":
     unittest.main()

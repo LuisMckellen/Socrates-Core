@@ -4,13 +4,17 @@ Everything that mutates the session runs in an ``on_click`` callback. Streamlit
 runs callbacks *before* the script re-executes, which is the only point at
 which ``sc_answer_draft`` may be written: once the text area has been
 instantiated on a given pass, assigning to its key raises.
+
+The page has a mode, derived from the last TurnResult (``render_mode``). A
+generated hint is the prompt for the *next* answer, so on a "probe" it renders
+above the answer box as part of the question card; the feedback card below
+only carries the verdict on the answer just given.
 """
 
 from __future__ import annotations
 
-import re
 from html import escape
-from typing import Iterable, Optional
+from typing import Optional
 
 import streamlit as st
 
@@ -35,63 +39,63 @@ _VERDICT_COLOUR: dict[str, str] = {
 PRESET_GIVE_UP = "No idea"
 _LABEL_LIMIT = 72
 
+CELL_THEORY_L1 = "s_cell_theory_L1"
+# Contradicts itself; a manual string, not a bank misconception.
+CELL_THEORY_L1_CONTRADICTION = "Cells divide because they don't divide"
+# Both key terms, not a bank variant: Case A, so the demo exercises verify_fn.
+CELL_THEORY_L1_CORRECT = "Pre-existing cells undergo division to form new tissue"
 
-def _drop_first_key_term(question: Question) -> Optional[str]:
-    """The canonical variant minus its first key term: a *partial* answer.
-
-    Produces a response that still carries the question's other key terms, so
-    ``_classify_by_key_terms`` finds a term missing and the answer is left to
-    the LLM partial label rather than Case A.
-
-    The removal takes the whole word, not the bare substring: key term "gene"
-    appears in the canonical text as "genes", and cutting the substring would
-    strand an "s" in the middle of the button label.
-    """
-    if not question.key_terms or not question.accepted_variants:
-        return None
-    canonical = question.accepted_variants[0]
-    stripped = re.sub(
-        rf"\b{re.escape(question.key_terms[0])}\w*\b", "", canonical, count=1
-    )
-    stripped = re.sub(r"\s+([,;.])", r"\1", stripped)  # close the gap left behind
-    stripped = " ".join(stripped.split()).strip(" ,;.")
-    if not stripped or stripped == canonical:
-        return None
-    return stripped
+MODE_BANK = "bank"
+MODE_PROBE = "probe"
+MODE_ESCALATE = "escalate"
+MODE_FINISHED = "finished"
+# TurnResult kinds that moved the session on to another question.
+ADVANCE_KINDS = frozenset({"correct", "escalated", "filter_escalated", "filter_missed"})
 
 
 def build_presets(question: Question) -> list[str]:
-    """Demo answers for ``question``, one per pipeline outcome.
+    """Demo answers for ``question``: the fill-in buttons under the answer box.
 
-    Filters classify nothing, so they only get give-up and correct. A Socratic
-    question additionally gets its first misconception (reaches the LLM
-    classifier) and a partial answer (resolved as LLM partial).
+    Filters classify nothing, so they get give-up and correct (2).
+    ``s_cell_theory_L1``, the demo's escalation target, gets give-up, its first
+    bank misconception verbatim, a self-contradicting answer (a manual string,
+    not a bank misconception) and a Case A correct answer (4). Any other
+    Socratic question gets give-up, its first misconception and the bank's
+    correct answer (3). The list is the same on every attempt: "Revise" on a
+    probe is the answer box's label, not a preset.
+
+    The partial path is exercised by test_classifier_llm and by the state
+    machine tests. There is no partial preset because _drop_first_key_term
+    produced ungrammatical text.
     """
+    # Misconception is a frozen dataclass, not a mapping.
+    if question.id == CELL_THEORY_L1:
+        return [
+            PRESET_GIVE_UP,
+            question.misconceptions[0].wrong_answer,
+            CELL_THEORY_L1_CONTRADICTION,
+            CELL_THEORY_L1_CORRECT,
+        ]
     presets = [PRESET_GIVE_UP]
-    if question.tier == "socratic":
-        if question.misconceptions:
-            # Misconception is a frozen dataclass, not a mapping.
-            presets.append(question.misconceptions[0].wrong_answer)
-        partial = _drop_first_key_term(question)
-        if partial:
-            presets.append(partial)
+    if question.tier == "socratic" and question.misconceptions:
+        presets.append(question.misconceptions[0].wrong_answer)
     presets.append(question.correct_answer)
     return presets
 
 
-def mock_label_overrides(questions: Iterable[Question]) -> dict[str, str]:
-    """Partial preset -> ``"partial"`` for ``MockInferenceClient``.
+def render_mode(result: Optional[TurnResult]) -> str:
+    """"bank" | "probe" | "escalate" | "finished", from the last TurnResult.
 
-    The preset text carries no steering word (it is shown as-is on every
-    backend), so the mock is told by exact string instead.
+    ``session_finished`` is checked first: the final turn also carries an
+    advancing kind.
     """
-    overrides: dict[str, str] = {}
-    for question in questions:
-        if question.tier == "socratic":
-            partial = _drop_first_key_term(question)
-            if partial:
-                overrides[partial] = "partial"
-    return overrides
+    if result is None:
+        return MODE_BANK
+    if result.session_finished:
+        return MODE_FINISHED
+    if result.kind == "hint":
+        return MODE_PROBE
+    return MODE_ESCALATE  # every ADVANCE_KINDS member
 
 
 def _label(text: str) -> str:
@@ -127,31 +131,65 @@ def _fill_draft(text: str) -> None:
 
 
 def _dismiss_feedback() -> None:
+    result: Optional[TurnResult] = st.session_state.sc_last_result
+    # The kept draft answered the previous question; a new one starts blank.
+    if result is not None and result.kind in ADVANCE_KINDS:
+        st.session_state.sc_answer_draft = ""
     st.session_state.sc_last_result = None
 
 
 # -- sections -----------------------------------------------------------------
 
 
-def render_question_card(question: Question) -> None:
+def render_question_card(question: Question, probe: Optional[dict] = None) -> None:
+    """The bank question; with ``probe`` (the last answer event), the hint too.
+
+    On a probe the student is revising, not starting fresh: the bank question
+    is dimmed, their answer is quoted back, and the hint is set apart from
+    question_text by a left border, a tinted background and italics.
+    """
     badges = [_badge(question.id, bg="#7C3AED", fg="#F8FAFC"), _badge(question.cluster)]
     badges.append(_badge(question.tier))
     if question.tier == "socratic" and question.level is not None:
         badges.append(_badge(f"level {question.level}"))
     st.markdown("".join(badges), unsafe_allow_html=True)
+    if probe is None:
+        st.markdown(
+            f"<div style='font-size:1.45rem;line-height:1.45;margin:18px 0 6px 0;'>"
+            f"{escape(question.question_text)}</div>",
+            unsafe_allow_html=True,
+        )
+        return
     st.markdown(
-        f"<div style='font-size:1.45rem;line-height:1.45;margin:18px 0 6px 0;'>"
+        f"<div style='font-size:1.05rem;line-height:1.45;color:#8A8A90;margin:14px 0 12px 0;'>"
         f"{escape(question.question_text)}</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f"<div style='color:#8A8A90;font-size:0.9rem;margin-bottom:10px;'>"
+        f"You said: “{escape(str(probe.get('answer', '')))}”</div>",
+        unsafe_allow_html=True,
+    )
+    # hint_text is model-generated; escaped like any other model output.
+    st.markdown(
+        f"<div style='border-left:4px solid #7C3AED;background:rgba(124,58,237,0.08);"
+        f"padding:12px 16px;border-radius:0 8px 8px 0;font-style:italic;"
+        f"font-size:1.25rem;line-height:1.45;margin:0 0 10px 0;'>"
+        f"{escape(str(probe.get('hint_text', '')))}</div>",
         unsafe_allow_html=True,
     )
 
 
-def render_answer_input(question: Question) -> None:
+def submit_label(mode: str) -> str:
+    return "Revise" if mode == MODE_PROBE else "Submit Answer"
+
+
+def render_answer_input(question: Question, mode: str = MODE_BANK) -> None:
     st.text_area("Your answer", key="sc_answer_draft", height=80)
     # Not disabled on an empty draft: the text area only commits its value on
     # blur, so a disabled button would swallow the click that blurs it.
     # ``_submit`` ignores blank answers instead.
-    st.button("Submit Answer", type="primary", on_click=_submit)
+    st.button(submit_label(mode), type="primary", on_click=_submit)
 
     st.caption("Demo answers")
     # Stacked rather than columned: bank answers are full sentences and would
@@ -177,14 +215,21 @@ def graded_answer(session: SocraticSession) -> Optional[str]:
     return event.get("answer") or None
 
 
-def render_feedback(session: SocraticSession, result: TurnResult) -> None:
+def render_feedback(session: SocraticSession, result: TurnResult, mode: str) -> None:
+    """The verdict on the answer just given, plus mastery.
+
+    On a probe the hint and the quoted answer are in the question card
+    instead, and there is no button: dismissing would hide the probe.
+    Otherwise ``result.message`` is "Correct.", a filter's note, or the
+    two-line reveal after max attempts.
+    """
     history = session.state.history
     answer_event = state.last_answer_event(history) or {}
     verdict = str(answer_event.get("verdict", "wrong"))
 
     st.divider()
     graded = graded_answer(session)
-    if graded:
+    if graded and mode != MODE_PROBE:
         st.markdown(
             f"<div style='color:#8A8A90;font-size:0.82rem;margin-bottom:9px;'>"
             f"You answered: {escape(graded)}</div>",
@@ -194,13 +239,12 @@ def render_feedback(session: SocraticSession, result: TurnResult) -> None:
         _badge(verdict, bg=_VERDICT_COLOUR.get(verdict, "#6B7280"), fg="#F8FAFC"),
         unsafe_allow_html=True,
     )
-    # result.message is a model-generated hint on most turns; escape it rather
-    # than letting the model emit markup into the page.
-    st.markdown(
-        f"<div style='font-size:1.05rem;line-height:1.5;margin:14px 0;white-space:pre-wrap;'>"
-        f"{escape(result.message)}</div>",
-        unsafe_allow_html=True,
-    )
+    if mode != MODE_PROBE:
+        st.markdown(
+            f"<div style='font-size:1.05rem;line-height:1.5;margin:14px 0;white-space:pre-wrap;'>"
+            f"{escape(result.message)}</div>",
+            unsafe_allow_html=True,
+        )
 
     question_id = answer_event.get("question_id")
     if question_id:
@@ -209,32 +253,36 @@ def render_feedback(session: SocraticSession, result: TurnResult) -> None:
         if current is not None and delta is not None:
             st.metric(f"Mastery · {cluster}", f"{current:.2f}", f"{delta:+.2f}")
 
-    if result.session_finished:
+    if mode == MODE_FINISHED:
         st.success("Session complete.")
-    else:
-        # A hint leaves the same question in play; everything else advanced.
-        retry = result.kind == "hint"
-        st.button(
-            "Try again" if retry else "Next question",
-            on_click=_dismiss_feedback,
-        )
+    elif mode == MODE_ESCALATE:
+        st.button("Next question", on_click=_dismiss_feedback)
 
 
 def render() -> None:
     session: SocraticSession = st.session_state.sc_session
     question: Optional[Question] = session.current_question()
     result: Optional[TurnResult] = st.session_state.sc_last_result
+    mode = render_mode(result)
 
     if question is None:
         if not session.state.question_ids:
             st.info("No questions selected — pick at least one cluster in the sidebar.")
         elif result is not None:
-            render_feedback(session, result)
+            render_feedback(session, result, mode)
         else:
             st.success("Session complete.")
         return
 
-    render_question_card(question)
-    render_answer_input(question)
-    if result is not None:
-        render_feedback(session, result)
+    # Escalate: the verdict belongs to the previous question, so it comes first.
+    if mode == MODE_ESCALATE:
+        render_feedback(session, result, mode)
+    probe: Optional[dict] = None
+    if mode == MODE_PROBE:
+        probe = dict(state.last_answer_event(session.state.history) or {})
+        # The hint path always fills hint_text; result.message is the same string.
+        probe["hint_text"] = probe.get("hint_text") or result.message
+    render_question_card(question, probe)
+    render_answer_input(question, mode)
+    if mode == MODE_PROBE:
+        render_feedback(session, result, mode)
