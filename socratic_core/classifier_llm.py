@@ -26,13 +26,18 @@ leaking it.
 Fallbacks, in this exact order, always land on ``logic_error`` — the
 conservative label whose hint strategy (counter-example) is least likely to
 mislead when we are unsure. Every fallback fails *closed*: none can yield
-``correct``, and each carries the model's ``raw_output`` for the log:
+``correct``, and each carries the model's ``raw_output`` for the log and
+``classifier_failed=True`` (the state machine's Groq fallback trigger):
 
-    1. client reported an error        -> confidence 0.0, "client error"
-    2. LABEL: line with an unknown label -> confidence 0.0, "unknown label ..."
-    3. no label in the reply           -> confidence 0.0, "unparseable output"
-    4. confidence below threshold      -> parsed confidence/reasoning kept for the log
-    5. otherwise                       -> the parsed label
+    1. client reported an error          -> "client error"
+    2. LABEL: line with an unknown label -> "unknown label ..."
+    3. no label in the reply             -> "unparseable output"
+    4. otherwise                         -> the parsed label
+
+The model is not asked for a confidence: a self-reported number was
+uncalibrated (every few-shot row said 0.95; replies only ever said 0.85-0.98)
+and never changed a label in practice. A stray ``CONFIDENCE:`` line in a
+reply is ignored.
 
 ``correct`` and ``partial`` are accepted only from an explicit ``LABEL:``
 line. The free-text fallback recognises the two error labels only, because
@@ -81,9 +86,8 @@ from typing import Any, Mapping, Optional
 
 from .inference_client import build_prompt
 
-CONFIDENCE_THRESHOLD = 0.7
 FALLBACK_LABEL = "logic_error"
-# LABEL, CONFIDENCE and MATCHED come first and fit in ~20 tokens; the cap only
+# LABEL and MATCHED come first and fit in ~15 tokens; the cap only
 # trims REASONING, which goes to the log. On CPU, decode dominated at 96 (~6 s).
 MAX_TOKENS = 32
 # Soft cap on the classifier prompt, in len(text) // 4 tokens.
@@ -121,7 +125,6 @@ SYSTEM_PROMPT = (
     "answer most closely matches, or none.\n"
     "Reply in exactly this format and nothing else:\n"
     "LABEL: <correct, partial, wording_error or logic_error>\n"
-    "CONFIDENCE: <number from 0.0 to 1.0>\n"
     "MATCHED: <example ID or none>\n"
     "REASONING: <one sentence>"
 )
@@ -131,7 +134,6 @@ _LABEL_WRAP = r"[\s*\"'`]*"
 _LABEL_LINE = re.compile(rf"LABEL\s*:{_LABEL_WRAP}({'|'.join(_LABELS)})\b", re.IGNORECASE)
 _LABEL_LINE_ANY_VALUE = re.compile(rf"LABEL\s*:{_LABEL_WRAP}([^\s*\"'`]+)", re.IGNORECASE)
 _LABEL_ANY = re.compile(rf"\b({'|'.join(_ERROR_LABELS)})\b", re.IGNORECASE)
-_CONFIDENCE = re.compile(r"CONFIDENCE\s*:\s*([0-9]*\.?[0-9]+)\s*(%?)", re.IGNORECASE)
 _REASONING = re.compile(r"REASONING\s*:\s*(.+)", re.IGNORECASE | re.DOTALL)
 _MATCHED = re.compile(rf"MATCHED\s*:{_LABEL_WRAP}([A-Za-z0-9_]+)", re.IGNORECASE)
 # Shape of an example alias; whether it was actually in the prompt is checked in classify_llm.
@@ -156,7 +158,6 @@ def _example_block(example_id: str, question_text: str, wrong_answer: str, label
         f"Question: {question_text}\n"
         f"Student answer: {wrong_answer}\n"
         f"LABEL: {label}\n"
-        f"CONFIDENCE: 0.95\n"
         f"MATCHED: {example_id}\n"
         f"REASONING: {explanation}"
     )
@@ -264,7 +265,7 @@ def parse_matched(text: str) -> str:
 
 
 def parse_classifier_output(text: str) -> Optional[dict[str, Any]]:
-    """Extract label, confidence, matched example and reasoning; ``None`` if no label is present.
+    """Extract label, matched example and reasoning; ``None`` if no label is present.
 
     A ``LABEL:`` line naming something outside ``_LABELS`` yields
     ``error_type="unknown"`` (with ``raw_label``) rather than a free-text
@@ -274,23 +275,15 @@ def parse_classifier_output(text: str) -> Optional[dict[str, Any]]:
     if m is None:
         stated = _LABEL_LINE_ANY_VALUE.search(text)
         if stated is not None:
-            return {"error_type": "unknown", "raw_label": stated.group(1), "confidence": 0.0, "reasoning": ""}
+            return {"error_type": "unknown", "raw_label": stated.group(1), "reasoning": ""}
         m = _LABEL_ANY.search(text)  # error labels only; never "correct" or "partial"
     if m is None:
         return None
     label = m.group(1).lower()
 
-    confidence = 0.0
-    c = _CONFIDENCE.search(text)
-    if c is not None:
-        confidence = float(c.group(1))
-        if c.group(2) or confidence > 1.0:
-            confidence /= 100.0
-        confidence = max(0.0, min(1.0, confidence))
-
     r = _REASONING.search(text)
     reasoning = r.group(1).strip() if r else ""
-    return {"error_type": label, "confidence": confidence, "reasoning": reasoning, "matched_bank_id": parse_matched(text)}
+    return {"error_type": label, "reasoning": reasoning, "matched_bank_id": parse_matched(text)}
 
 
 # -- public API ------------------------------------------------------------------
@@ -299,12 +292,12 @@ def parse_classifier_output(text: str) -> Optional[dict[str, Any]]:
 def classify_llm(answer: str, question: Any, client: Any, budget: Optional[int] = None) -> dict:
     """Label an answer ``correct``, ``partial``, ``wording_error`` or ``logic_error``.
 
-    Returns ``{"error_type", "confidence", "reasoning", "matched_bank_id",
+    Returns ``{"error_type", "reasoning", "matched_bank_id",
     "dropped_examples"}``; every fallback (see module docstring) lands on
-    ``logic_error`` and adds ``raw_output``. ``matched_bank_id`` is the stable
+    ``logic_error`` and adds ``raw_output`` and ``classifier_failed=True``.
+    ``matched_bank_id`` is the stable
     id (``natural_correct``, ``partial_example`` or a misconception's bank id)
-    of an example that was in this prompt, or ``"none"``; a low-confidence
-    reply keeps the one it named. ``dropped_examples`` lists the ids the
+    of an example that was in this prompt, or ``"none"``. ``dropped_examples`` lists the ids the
     context budget left out (usually empty). ``budget`` defaults to
     ``MAX_CONTEXT_TOKENS`` as read at call time. ``client`` is anything with
     ``.generate(prompt, max_tokens) -> dict`` in the ``InferenceClient``
@@ -323,39 +316,29 @@ def classify_llm(answer: str, question: Any, client: Any, budget: Optional[int] 
     return {**result, "dropped_examples": [alias_to_id[a] for a in dropped]}
 
 
+def _failed(reasoning: str, raw_output: str) -> dict:
+    """A fail-closed fallback: logic_error, flagged so the state machine can retry elsewhere."""
+    return {
+        "error_type": FALLBACK_LABEL,
+        "reasoning": reasoning,
+        "matched_bank_id": MATCHED_NONE,
+        "raw_output": raw_output,
+        "classifier_failed": True,
+    }
+
+
 def _classify(result: Mapping[str, Any]) -> dict:
     raw_output = str(result.get("text", "") or "")
 
     if result.get("error") is not None:
-        return {
-            "error_type": FALLBACK_LABEL,
-            "confidence": 0.0,
-            "reasoning": "client error",
-            "matched_bank_id": MATCHED_NONE,
-            "raw_output": raw_output,
-        }
+        return _failed("client error", raw_output)
 
     parsed = parse_classifier_output(raw_output)
     if parsed is None:
-        return {
-            "error_type": FALLBACK_LABEL,
-            "confidence": 0.0,
-            "reasoning": "unparseable output",
-            "matched_bank_id": MATCHED_NONE,
-            "raw_output": raw_output,
-        }
+        return _failed("unparseable output", raw_output)
 
     if parsed["error_type"] == "unknown":
-        return {
-            "error_type": FALLBACK_LABEL,
-            "confidence": 0.0,
-            "reasoning": f"unknown label {parsed['raw_label']!r}",
-            "matched_bank_id": MATCHED_NONE,
-            "raw_output": raw_output,
-        }
-
-    if parsed["confidence"] < CONFIDENCE_THRESHOLD:
-        return {**parsed, "error_type": FALLBACK_LABEL, "raw_output": raw_output}
+        return _failed(f"unknown label {parsed['raw_label']!r}", raw_output)
 
     return parsed
 

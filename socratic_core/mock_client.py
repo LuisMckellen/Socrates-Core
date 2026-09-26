@@ -17,8 +17,8 @@ test can steer the label by what it puts in the answer; no steering word
 means ``logic_error``. ``NOISE_TOLERANCE_PREFIX`` is cut off first: it ends
 in "present and correct." and would otherwise steer every answer to
 ``correct``. ``label_overrides`` maps an exact student answer to a steering
-word and wins over the words in it: the UI uses it to make its partial demo
-presets, which carry no steering word, classify as ``partial``.
+word and wins over the words in it, for tests that need an answer with no
+steering word to take a given label. The UI does not use it.
 
 The Case A verify prompt gets ``YES``, or ``NO`` when the answer's last
 steering word is ``partial``, ``wording`` or ``logic`` (the same convention).
@@ -37,8 +37,6 @@ from typing import Any, Mapping, Optional
 from .inference_client import DEFAULT_CHAT_TEMPLATE
 from .noise import NOISE_TOLERANCE_PREFIX
 
-DEFAULT_CONFIDENCE = 0.92
-
 HINT_PROMPT_MARKER = "You are a Socratic tutor."
 CLASSIFIER_PROMPT_MARKER = "You are grading a student's answer for a tutor."
 CASE_A_VERIFY_MARKER = "Does this student answer state the biological mechanism correctly"
@@ -48,26 +46,23 @@ _USER_SUFFIX = DEFAULT_CHAT_TEMPLATE["user_suffix"]
 # Word-initial, so "incorrect" does not steer to correct.
 _STEER = re.compile(r"\b(correct|partial|wording|logic)", re.IGNORECASE)
 
-# Canned completions, in the same ``LABEL/CONFIDENCE/REASONING`` layout that
-# classifier_llm asks the real model for.
+# Canned completions, in the same ``LABEL/REASONING`` layout that
+# classifier_llm asks the real model for (no MATCHED line: matched_bank_id
+# comes back "none").
 _CORRECT_TEXT = (
     "LABEL: correct\n"
-    "CONFIDENCE: {conf:.2f}\n"
     "REASONING: The student states the mechanism accurately."
 )
 _PARTIAL_TEXT = (
     "LABEL: partial\n"
-    "CONFIDENCE: {conf:.2f}\n"
     "REASONING: The student states part of the mechanism but leaves the rest out."
 )
 _WORDING_TEXT = (
     "LABEL: wording_error\n"
-    "CONFIDENCE: {conf:.2f}\n"
     "REASONING: The student has the right idea but used the wrong term for it."
 )
 _LOGIC_TEXT = (
     "LABEL: logic_error\n"
-    "CONFIDENCE: {conf:.2f}\n"
     "REASONING: The student uses the right vocabulary but the reasoning does not hold."
 )
 _HINT_TEXT = "What would happen to that process if the part you named were removed?"
@@ -80,11 +75,9 @@ class MockInferenceClient:
     def __init__(
         self,
         fail_mode: bool = False,
-        force_confidence: Optional[float] = None,
         label_overrides: Optional[Mapping[str, str]] = None,
     ) -> None:
         self.fail_mode = fail_mode
-        self.force_confidence = force_confidence
         # exact student answer -> steering word ("correct", "partial", "wording", "logic")
         self.label_overrides: dict[str, str] = dict(label_overrides or {})
         self.call_log: list[dict[str, Any]] = []
@@ -107,14 +100,12 @@ class MockInferenceClient:
         if HINT_PROMPT_MARKER in prompt:
             return _HINT_TEXT
         if CLASSIFIER_PROMPT_MARKER in prompt:
-            conf = self.force_confidence if self.force_confidence is not None else DEFAULT_CONFIDENCE
             answer = self._student_answer(prompt)
             last = self.label_overrides.get(answer.split(_USER_SUFFIX, 1)[0].strip())
             if last is None:
                 steers = _STEER.findall(answer)
                 last = steers[-1].lower() if steers else "logic"
-            template = {"correct": _CORRECT_TEXT, "partial": _PARTIAL_TEXT, "wording": _WORDING_TEXT}.get(last, _LOGIC_TEXT)
-            return template.format(conf=conf)
+            return {"correct": _CORRECT_TEXT, "partial": _PARTIAL_TEXT, "wording": _WORDING_TEXT}.get(last, _LOGIC_TEXT)
         return _GENERIC_TEXT
 
     @staticmethod

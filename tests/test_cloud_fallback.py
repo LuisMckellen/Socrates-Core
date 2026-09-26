@@ -1,4 +1,4 @@
-"""Offline tests for the Groq client and the low-confidence cloud fallback.
+"""Offline tests for the Groq client and the classifier-failure cloud fallback.
 
 No network: Groq is never called. The fallback is exercised with plain
 callables in the ``classifier_fn`` shape.
@@ -18,7 +18,9 @@ sys.path.insert(0, str(ROOT))
 
 from socratic_core import cloud_client  # noqa: E402
 from socratic_core.cloud_client import API_KEY_NAME, GroqClient, GroqConfigError, split_chatml  # noqa: E402
+from socratic_core.classifier_llm import make_classifier_fn  # noqa: E402
 from socratic_core.inference_client import build_prompt  # noqa: E402
+from socratic_core.mock_client import MockInferenceClient  # noqa: E402
 from socratic_core.question_bank import load_question_bank  # noqa: E402
 from socratic_core.state_machine import CLOUD_FALLBACK_SOURCE, SocraticSession  # noqa: E402
 from ui import state  # noqa: E402
@@ -37,8 +39,12 @@ def _no_key():
     )
 
 
-def _label(error_type: str, confidence: float):
-    return lambda q, a: {"error_type": error_type, "confidence": confidence, "reasoning": "t"}
+def _label(error_type: str, failed: bool = False):
+    """A classifier_fn; ``failed`` marks it as one of classify_llm's fail-closed fallbacks."""
+    reply = {"error_type": error_type, "reasoning": "t"}
+    if failed:
+        reply["classifier_failed"] = True
+    return lambda q, a: reply
 
 
 class GroqClientTests(unittest.TestCase):
@@ -74,9 +80,9 @@ class CloudFallbackTests(unittest.TestCase):
     def _last(s, event):
         return [h for h in s.state.history if h["event"] == event][-1]
 
-    def test_confidence_floor_triggers_fallback(self):
-        groq = Mock(side_effect=_label("correct", 0.9))
-        s = self._session(_label("logic_error", 0.5), groq)
+    def test_local_failure_triggers_fallback(self):
+        groq = Mock(side_effect=_label("correct"))
+        s = self._session(_label("logic_error", failed=True), groq)
         r = s.submit_answer(NATURAL)
         groq.assert_called_once()
         self.assertEqual((r.kind, r.error_source), ("correct", CLOUD_FALLBACK_SOURCE))
@@ -84,28 +90,38 @@ class CloudFallbackTests(unittest.TestCase):
         self.assertEqual((answer["error_source"], answer["cloud_fallback_used"]), (CLOUD_FALLBACK_SOURCE, True))
         self.assertTrue(self._last(s, "llm_classify")["cloud_fallback_attempted"])
 
-    def test_confident_local_skips_fallback(self):
-        groq = Mock(side_effect=_label("correct", 0.9))
-        s = self._session(_label("logic_error", 0.7), groq)  # exactly at the threshold: not below it
+    def test_real_local_failure_triggers_fallback(self):
+        # The path that is reachable in practice: classify_llm's own fail-closed result.
+        groq = Mock(side_effect=_label("wording_error"))
+        s = self._session(make_classifier_fn(MockInferenceClient(fail_mode=True)), groq)
+        r = s.submit_answer(NATURAL)
+        groq.assert_called_once()
+        self.assertEqual((r.error_type, r.error_source), ("wording_error", CLOUD_FALLBACK_SOURCE))
+
+    def test_successful_local_skips_fallback(self):
+        groq = Mock(side_effect=_label("correct"))
+        s = self._session(_label("logic_error"), groq)
         r = s.submit_answer(NATURAL)
         groq.assert_not_called()
         self.assertEqual((r.error_type, r.error_source), ("logic_error", "llm"))
         self.assertFalse(self._last(s, "answer")["cloud_fallback_used"])
 
     def test_local_error_triggers_fallback(self):
-        s = self._session(Mock(side_effect=RuntimeError("llama died")), _label("wording_error", 0.9))
+        s = self._session(Mock(side_effect=RuntimeError("llama died")), _label("wording_error"))
         r = s.submit_answer(NATURAL)
         self.assertEqual((r.error_type, r.error_source), ("wording_error", CLOUD_FALLBACK_SOURCE))
         self.assertTrue(self._last(s, "answer")["cloud_fallback_used"])
 
     def test_failed_fallback_keeps_local_result(self):
-        for groq in (Mock(side_effect=ConnectionError("offline")), _label("logic_error", 0.0)):
+        for groq in (Mock(side_effect=ConnectionError("offline")), _label("correct", failed=True)):
             with self.subTest(groq=groq):
-                s = self._session(_label("logic_error", 0.5), groq)
+                s = self._session(_label("logic_error", failed=True), groq)
                 r = s.submit_answer(NATURAL)
                 self.assertEqual((r.error_type, r.error_source), ("logic_error", "llm"))
                 answer = self._last(s, "answer")
-                self.assertEqual((answer["confidence"], answer["cloud_fallback_used"]), (0.5, False))
+                self.assertFalse(answer["cloud_fallback_used"])
+                self.assertNotIn("confidence", answer)
+                self.assertTrue(self._last(s, "llm_classify")["classifier_failed"])
 
     def test_fallback_disabled_when_no_groq_key(self):
         secrets, env = _no_key()
@@ -114,8 +130,8 @@ class CloudFallbackTests(unittest.TestCase):
         # Opt-in and backend gate even before the key is looked at.
         self.assertIsNone(state.cloud_fallback_fn(False, state.BACKEND_LOCAL))
         self.assertIsNone(state.cloud_fallback_fn(True, state.BACKEND_MOCK))
-        # And a session without a fallback keeps its low-confidence local label.
-        s = self._session(_label("logic_error", 0.5), None)
+        # And a session without a fallback keeps its failed local label.
+        s = self._session(_label("logic_error", failed=True), None)
         r = s.submit_answer(NATURAL)
         self.assertEqual((r.error_type, r.error_source), ("logic_error", "llm"))
         self.assertFalse(self._last(s, "answer")["cloud_fallback_used"])
