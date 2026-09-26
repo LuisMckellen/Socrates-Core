@@ -117,12 +117,6 @@ class QuestionBankTests(unittest.TestCase):
         self.assertFalse(Q1.is_correct(""))
         self.assertFalse(Q1.is_correct("atom"))
 
-    def test_match_misconception(self):
-        m = Q1.match_misconception("The Atom!")
-        self.assertIsNotNone(m)
-        self.assertEqual(m.error_type, "logic_error")
-        self.assertIsNone(Q1.match_misconception("a banana"))
-
     def test_keywords_include_topic_and_answers(self):
         kw = Q1.keywords()
         self.assertIn("cell", kw)
@@ -391,28 +385,22 @@ class StateMachineTests(unittest.TestCase):
         self.assertEqual(r.error_type, "wording_error")
         self.assertEqual(r.error_source, "llm")
 
-    def test_bypass_bank_lookup_is_now_a_no_op(self):
+    def test_verbatim_misconception_reaches_the_llm(self):
         # Change 2 removed the bank-misconception lookup layer. "the atom" is a
-        # verbatim Q1 misconception (the exact input the old flag governed) and
-        # matches no key_terms, so it must reach the LLM regardless of the flag.
-        self.assertIsNotNone(Q1.match_misconception("the atom"))
+        # verbatim Q1 misconception and matches no key_terms, so it must reach
+        # the LLM: the bank never pre-empts the classifier.
+        self.assertIn("the atom", [m.wrong_answer.lower() for m in Q1.misconceptions])
+        calls: list[str] = []
 
-        for flag in (False, True):
-            with self.subTest(bypass_bank_lookup=flag):
-                calls: list[str] = []
+        def fake_llm(question, answer):
+            calls.append(answer)
+            return {"error_type": "wording_error", "reasoning": "test"}
 
-                def fake_llm(question, answer):
-                    calls.append(answer)
-                    return {"error_type": "wording_error", "confidence": 0.9, "reasoning": "test"}
-
-                s = SocraticSession(
-                    BANK, bypass_bank_lookup=flag, classifier_fn=fake_llm, sessions_dir=self.sessions_dir
-                )
-                r = s.submit_answer("the atom")
-                self.assertEqual(len(calls), 1)  # LLM reached; the bank never pre-empted it
-                self.assertEqual((r.error_type, r.error_source), ("wording_error", "llm"))
-                self.assertNotIn("bank", [h.get("error_source") for h in s.state.history])
-                self.assertEqual(s.state.bypass_bank_lookup, flag)
+        s = SocraticSession(BANK, classifier_fn=fake_llm, sessions_dir=self.sessions_dir)
+        r = s.submit_answer("the atom")
+        self.assertEqual(len(calls), 1)
+        self.assertEqual((r.error_type, r.error_source), ("wording_error", "llm"))
+        self.assertNotIn("bank", [h.get("error_source") for h in s.state.history])
 
     def test_injected_hint_fn_receives_error_type(self):
         seen = {}

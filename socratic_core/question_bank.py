@@ -8,8 +8,10 @@ offers 0 ms lookups that the state machine and the behavioural classifier
 rely on:
 
 * ``Question.is_correct(answer)``          — exact match after normalisation
-* ``Question.match_misconception(answer)`` — known wrong answer -> error type
 * ``Question.keywords()``                  — topic vocabulary for off-topic checks
+
+Misconceptions are data for the LLM classifier's few-shot prompt and the
+hint generator; nothing matches a student answer against them here.
 
 Nothing here touches the model. The bank is the *only* place the correct
 answer lives; the LLM never sees it except inside the hint validator
@@ -30,15 +32,11 @@ from pathlib import Path
 from typing import Iterator, Literal, Optional
 
 ErrorType = Literal["correct", "wording_error", "logic_error", "low_effort"]
-VALID_ERROR_TYPES: frozenset[str] = frozenset(
-    {"correct", "wording_error", "logic_error", "low_effort"}
-)
 # low_effort is a behavioural verdict, never a bank-authored misconception.
 # correct and wording_error are runtime-only labels from the LLM classifier;
 # the bank itself may only author logic_error misconceptions (CHECK 9).
 BANK_ERROR_TYPES: frozenset[str] = frozenset({"logic_error"})
 
-Tier = Literal["filter", "socratic"]
 VALID_TIERS: frozenset[str] = frozenset({"filter", "socratic"})
 SOCRATIC_MISCONCEPTION_RANGE = (1, 3)
 SOCRATIC_LEVELS: frozenset[int] = frozenset({1, 2})
@@ -131,9 +129,6 @@ class Misconception:
     # misconception should get the student to notice. None when absent or blank.
     diagnostic_goal: Optional[str] = None
 
-    def matches(self, answer: str) -> bool:
-        return normalize_answer(answer) == normalize_answer(self.wrong_answer)
-
 
 @dataclass(frozen=True)
 class Question:
@@ -183,12 +178,6 @@ class Question:
         if not candidate:
             return False
         return any(candidate == normalize_answer(a) for a in self.accepted_answers())
-
-    def match_misconception(self, answer: str) -> Optional[Misconception]:
-        for m in self.misconceptions:
-            if m.matches(answer):
-                return m
-        return None
 
     # -- vocabulary for the behavioural classifier -------------------------
 
@@ -242,15 +231,6 @@ class QuestionBank:
 
     def ids(self) -> list[str]:
         return [q.id for q in self.questions]
-
-    def by_topic(self, topic: str) -> list[Question]:
-        return [q for q in self.questions if q.topic == topic]
-
-    def topics(self) -> list[str]:
-        seen: dict[str, None] = {}
-        for q in self.questions:
-            seen.setdefault(q.topic, None)
-        return list(seen)
 
 
 # -- loading --------------------------------------------------------------

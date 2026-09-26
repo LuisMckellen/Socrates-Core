@@ -137,10 +137,6 @@ class GenieBundle:
     chat_template: dict[str, str] = field(default_factory=dict)
     qairt_version: Optional[str] = None
 
-    @property
-    def total_bin_bytes(self) -> int:
-        return sum(p.stat().st_size for p in self.ctx_bins)
-
 
 class BundleError(RuntimeError):
     """The model folder is missing or does not look like a Genie bundle."""
