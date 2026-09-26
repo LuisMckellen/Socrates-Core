@@ -63,7 +63,7 @@ def render() -> None:
         elif st.session_state.sc_backend == state.BACKEND_LOCAL:
             available = groq_available()
             st.checkbox(
-                "Groq fallback on low confidence (off-device)",
+                "Groq fallback on classifier failure (off-device)",
                 key="sc_cloud_fallback",
                 disabled=not available,
                 help=None if available else _NO_KEY,

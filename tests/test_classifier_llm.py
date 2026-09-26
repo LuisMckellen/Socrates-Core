@@ -61,95 +61,94 @@ class ClassifierLLMTests(unittest.TestCase):
     def test_clear_partial_returns_partial(self):
         r = classify_llm("this is a partial answer", Q1, MockInferenceClient())
         self.assertEqual(r["error_type"], "partial")
-        self.assertGreaterEqual(r["confidence"], 0.7)
+        self.assertNotIn("classifier_failed", r)
 
     def test_clear_correct_returns_correct(self):
         r = classify_llm("this is a correct answer", Q1, MockInferenceClient())
         self.assertEqual(r["error_type"], "correct")
-        self.assertGreaterEqual(r["confidence"], 0.7)
 
     def test_clear_wording_error_returns_wording(self):
         r = classify_llm("this is a wording mistake", Q1, MockInferenceClient())
         self.assertEqual(r["error_type"], "wording_error")
-        self.assertGreaterEqual(r["confidence"], 0.7)
 
     def test_clear_logic_error_returns_logic(self):
         r = classify_llm("this is a logic mistake", Q1, MockInferenceClient())
         self.assertEqual(r["error_type"], "logic_error")
-        self.assertGreaterEqual(r["confidence"], 0.7)
+        self.assertNotIn("classifier_failed", r)
 
     # -- fallbacks: all fail closed to logic_error, with raw_output -------------
 
-    def test_low_confidence_falls_back_to_logic(self):
-        r = classify_llm("this is a wording mistake", Q1, MockInferenceClient(force_confidence=0.5))
-        self.assertEqual(r["error_type"], "logic_error")
-        self.assertEqual(r["confidence"], 0.5)
-        self.assertTrue(r["reasoning"])
-        self.assertIn("LABEL: wording_error", r["raw_output"])
-
-    def test_low_confidence_correct_falls_back_to_logic(self):
-        r = classify_llm("this is a correct answer", Q1, MockInferenceClient(force_confidence=0.5))
-        self.assertEqual(r["error_type"], "logic_error")
-        self.assertIn("LABEL: correct", r["raw_output"])
-
-    def test_client_error_falls_back_to_logic_zero_conf(self):
+    def test_client_error_falls_back_to_logic(self):
         r = classify_llm("the organ", Q1, MockInferenceClient(fail_mode=True))
         self.assertEqual(r["error_type"], "logic_error")
-        self.assertEqual(r["confidence"], 0.0)
+        self.assertTrue(r["classifier_failed"])
         self.assertEqual(r["reasoning"], "client error")
         self.assertIn("raw_output", r)
 
     def test_unparseable_output_falls_back_to_logic(self):
         r = classify_llm("the organ", Q1, _GarbageClient())
         self.assertEqual(r["error_type"], "logic_error")
-        self.assertEqual(r["confidence"], 0.0)
+        self.assertTrue(r["classifier_failed"])
         self.assertEqual(r["reasoning"], "unparseable output")
         self.assertEqual(r["raw_output"], "asdf qwerty 12345 ???")
 
     def test_out_of_set_label_fails_closed_with_raw_output(self):
-        text = "LABEL: halfway\nCONFIDENCE: 0.95\nREASONING: Half of it is there."
+        text = "LABEL: halfway\nREASONING: Half of it is there."
         r = classify_llm("the organ", Q1, _ScriptedClient(text))
         self.assertEqual(r["error_type"], "logic_error")
-        self.assertEqual(r["confidence"], 0.0)
+        self.assertTrue(r["classifier_failed"])
         self.assertEqual(r["reasoning"], "unknown label 'halfway'")
         self.assertEqual(r["raw_output"], text)
 
     def test_incorrect_on_label_line_is_not_correct(self):
-        r = classify_llm("the organ", Q1, _ScriptedClient("LABEL: incorrect\nCONFIDENCE: 0.9\nREASONING: x"))
+        r = classify_llm("the organ", Q1, _ScriptedClient("LABEL: incorrect\nREASONING: x"))
         self.assertEqual(r["error_type"], "logic_error")
+
+    # -- confidence is gone ------------------------------------------------------
+
+    def test_prompt_has_no_confidence(self):
+        self.assertNotIn("CONFIDENCE", SYSTEM_PROMPT)
+        self.assertNotIn("CONFIDENCE", build_classifier_prompt("x", Q1))
+
+    def test_parser_ignores_stray_confidence_line(self):
+        # An old-format reply still parses; the number is neither read nor returned.
+        parsed = parse_classifier_output("LABEL: wording_error\nCONFIDENCE: 0.2\nMATCHED: m_0\nREASONING: x")
+        self.assertEqual(parsed, {"error_type": "wording_error", "reasoning": "x", "matched_bank_id": "m_0"})
+        # A low number no longer overrides the stated label (0a.1: it used to fail closed).
+        r = classify_llm("the organ", Q1, _ScriptedClient("LABEL: partial\nCONFIDENCE: 0.5"))
+        self.assertEqual(r["error_type"], "partial")
+        self.assertNotIn("classifier_failed", r)
 
     # -- "correct" only ever from an explicit LABEL: line ----------------------
 
     def test_label_line_correct_is_parsed(self):
-        for text in ("LABEL: correct\nCONFIDENCE: 0.9\nREASONING: ok", "LABEL: **Correct**\nCONFIDENCE: 0.9"):
+        for text in ("LABEL: correct\nREASONING: ok", "LABEL: **Correct**"):
             with self.subTest(text=text):
                 self.assertEqual(parse_classifier_output(text)["error_type"], "correct")
 
     def test_free_text_correct_is_never_a_label(self):
         # No LABEL: line: the free-text fallback knows the two error labels only.
-        self.assertIsNone(parse_classifier_output("The answer is correct. CONFIDENCE: 0.9"))
-        r = classify_llm("the organ", Q1, _ScriptedClient("The answer is correct.\nCONFIDENCE: 0.99"))
+        self.assertIsNone(parse_classifier_output("The answer is correct."))
+        r = classify_llm("the organ", Q1, _ScriptedClient("The answer is correct."))
         self.assertEqual(r["error_type"], "logic_error")
 
     def test_free_text_error_label_still_recovered(self):
         self.assertEqual(parse_classifier_output("I'd call it a wording_error.")["error_type"], "wording_error")
 
     def test_partial_only_from_label_line(self):
-        self.assertEqual(parse_classifier_output("LABEL: partial\nCONFIDENCE: 0.9")["error_type"], "partial")
-        self.assertEqual(parse_classifier_output("LABEL: **Partial**\nCONFIDENCE: 0.9")["error_type"], "partial")
+        self.assertEqual(parse_classifier_output("LABEL: partial")["error_type"], "partial")
+        self.assertEqual(parse_classifier_output("LABEL: **Partial**")["error_type"], "partial")
         # Free text never yields partial: it is a verdict, not a recoverable error label.
-        self.assertIsNone(parse_classifier_output("The answer is partial. CONFIDENCE: 0.9"))
+        self.assertIsNone(parse_classifier_output("The answer is partial."))
         self.assertEqual(parse_classifier_output("partial, so logic_error")["error_type"], "logic_error")
-        r = classify_llm("the organ", Q1, _ScriptedClient("LABEL: partial\nCONFIDENCE: 0.5"))
-        self.assertEqual(r["error_type"], "logic_error")  # low confidence fails closed like any label
 
     def test_noise_prefix_correct_does_not_leak_into_label(self):
         # NOISE_TOLERANCE_PREFIX ends in "present and correct." -- echoed back by
         # the model, it must not turn a logic_error LABEL into correct...
-        echoed = f"{NOISE_TOLERANCE_PREFIX}\nLABEL: logic_error\nCONFIDENCE: 0.9\nREASONING: Cells swell, not divide."
+        echoed = f"{NOISE_TOLERANCE_PREFIX}\nLABEL: logic_error\nREASONING: Cells swell, not divide."
         self.assertEqual(classify_llm("x", Q1, _ScriptedClient(echoed))["error_type"], "logic_error")
         # ...nor stand in for a missing LABEL: line.
-        bare = f"{NOISE_TOLERANCE_PREFIX}\nCONFIDENCE: 0.9"
+        bare = f"{NOISE_TOLERANCE_PREFIX}\nMATCHED: none"
         self.assertEqual(classify_llm("x", Q1, _ScriptedClient(bare))["error_type"], "logic_error")
         # ...nor steer the mock when it travels inside the student answer.
         prefixed = f"{NOISE_TOLERANCE_PREFIX} the damaged cells swell up"
@@ -199,7 +198,7 @@ class ClassifierLLMTests(unittest.TestCase):
         prompt = build_classifier_prompt("x", Q1)
         block = (
             f"Example partial_example:\nQuestion: {Q1.question_text}\nStudent answer: It involves division.\n"
-            "LABEL: partial\nCONFIDENCE: 0.95\nMATCHED: partial_example\n"
+            "LABEL: partial\nMATCHED: partial_example\n"
             "REASONING: Names division but leaves out pre-existing."
         )
         self.assertIn(block, prompt)
@@ -303,10 +302,10 @@ class ClassifierLLMTests(unittest.TestCase):
 
     def test_parser_extracts_matched(self):
         for text, expected in (
-            ("LABEL: logic_error\nCONFIDENCE: 0.9\nMATCHED: m_1\nREASONING: x", "m_1"),
-            ("LABEL: correct\nCONFIDENCE: 0.9\nMATCHED: **natural_correct**", "natural_correct"),
-            ("LABEL: partial\nCONFIDENCE: 0.9\nmatched: Partial_Example", "partial_example"),
-            ("LABEL: wording_error\nCONFIDENCE: 0.9\nMATCHED: none", "none"),
+            ("LABEL: logic_error\nMATCHED: m_1\nREASONING: x", "m_1"),
+            ("LABEL: correct\nMATCHED: **natural_correct**", "natural_correct"),
+            ("LABEL: partial\nmatched: Partial_Example", "partial_example"),
+            ("LABEL: wording_error\nMATCHED: none", "none"),
         ):
             with self.subTest(text=text):
                 self.assertEqual(parse_classifier_output(text)["matched_bank_id"], expected)
@@ -314,15 +313,15 @@ class ClassifierLLMTests(unittest.TestCase):
         for alias, bank_id in (("m_0", "ct_hypertrophy"), ("m_1", "ct_spontaneous_generation"),
                                ("natural_correct", "natural_correct"), ("partial_example", "partial_example")):
             with self.subTest(alias=alias):
-                text = f"LABEL: logic_error\nCONFIDENCE: 0.9\nMATCHED: {alias}\nREASONING: x"
+                text = f"LABEL: logic_error\nMATCHED: {alias}\nREASONING: x"
                 r = classify_llm("x", Q1, _ScriptedClient(text))
                 self.assertEqual((r["error_type"], r["matched_bank_id"]), ("logic_error", bank_id))
 
     def test_parser_missing_matched_defaults_to_none(self):
-        self.assertEqual(parse_classifier_output("LABEL: logic_error\nCONFIDENCE: 0.9")["matched_bank_id"], "none")
+        self.assertEqual(parse_classifier_output("LABEL: logic_error")["matched_bank_id"], "none")
         for garbage in ("MATCHED: ???", "MATCHED:"):
             with self.subTest(garbage=garbage):
-                parsed = parse_classifier_output(f"LABEL: logic_error\nCONFIDENCE: 0.9\n{garbage}")
+                parsed = parse_classifier_output(f"LABEL: logic_error\n{garbage}")
                 self.assertEqual(parsed["matched_bank_id"], "none")
         # Every classify_llm result carries it, fallbacks included.
         self.assertEqual(classify_llm("x", Q1, MockInferenceClient())["matched_bank_id"], "none")
@@ -333,10 +332,10 @@ class ClassifierLLMTests(unittest.TestCase):
         # or another question's bank id.
         for absent in ("the_second_one", f"m_{len(Q1.misconceptions)}", "ct_hypertrophy", "enz_shifts_equilibrium"):
             with self.subTest(absent=absent):
-                r = classify_llm("x", Q1, _ScriptedClient(f"LABEL: logic_error\nCONFIDENCE: 0.9\nMATCHED: {absent}"))
+                r = classify_llm("x", Q1, _ScriptedClient(f"LABEL: logic_error\nMATCHED: {absent}"))
                 self.assertEqual(r["matched_bank_id"], "none")
         # Nor is one the context budget dropped.
-        r = classify_llm("x", Q1, _ScriptedClient("LABEL: logic_error\nCONFIDENCE: 0.9\nMATCHED: m_0"), budget=1)
+        r = classify_llm("x", Q1, _ScriptedClient("LABEL: logic_error\nMATCHED: m_0"), budget=1)
         self.assertEqual(r["matched_bank_id"], "none")
 
     def test_classifier_prompt_includes_example_ids(self):
@@ -353,29 +352,32 @@ class ClassifierLLMTests(unittest.TestCase):
         for i, m in enumerate(Q1.misconceptions):
             with self.subTest(example=f"m_{i}"):
                 self.assertIn(f"Example m_{i}:\nQuestion: {Q1.question_text}\nStudent answer: {m.wrong_answer}\n", prompt)
-                self.assertIn(f"LABEL: {m.error_type}\nCONFIDENCE: 0.95\nMATCHED: m_{i}\n", prompt)
+                self.assertIn(f"LABEL: {m.error_type}\nMATCHED: m_{i}\n", prompt)
                 # The model sees the alias, never the stable bank id.
                 self.assertNotIn(m.id, prompt)
 
-    def test_classifier_prompt_matches_head(self):
-        """Prompt rendering is byte-identical to pre-0a HEAD.
+    def test_classifier_prompt_golden_hash(self):
+        """Prompt rendering is pinned; any change to it must be deliberate.
 
-        Semantic IDs are for the bank and log. The model sees positional
-        aliases so its behavior is unchanged. (Showing ct_* ids moved a
-        partial answer's MATCHED from partial_example to none on Local CPU.)
+        0a.1 changed it on purpose: the CONFIDENCE line left the reply format
+        and every few-shot row (previous hash 001bfa92…d1125d4). Verdict,
+        error_type, matched_bank_id and error_source were re-traced on Local CPU
+        and unchanged. Semantic IDs stay out of the prompt: the model sees
+        positional aliases (showing ct_* ids moved a partial answer's MATCHED
+        from partial_example to none on Local CPU).
         """
         answer = f"{NOISE_TOLERANCE_PREFIX} Cells come from pre-existing things i guess"
         prompt = classifier_llm._render_prompt(answer, Q1, classifier_llm._tagged_examples(Q1))
         self.assertEqual(
             hashlib.sha256(prompt.encode()).hexdigest(),
-            "001bfa92b913ea4fb7ffb141a3f0d113a1fd86ad643dbf9a6f0ad4209d1125d4",
+            "ff5d42ee50f1beafe1ec9bc9b8184fad2b06380ee16bba872a01265d210a04b8",
         )
 
     def test_classifier_prompt_includes_partial_example_id(self):
         prompt = build_classifier_prompt("x", Q1)
         self.assertIn(
             f"Example partial_example:\nQuestion: {Q1.question_text}\nStudent answer: It involves division.\n"
-            "LABEL: partial\nCONFIDENCE: 0.95\nMATCHED: partial_example\n",
+            "LABEL: partial\nMATCHED: partial_example\n",
             prompt,
         )
         no_terms = build_classifier_prompt("x", dataclasses.replace(Q1, key_terms=()))

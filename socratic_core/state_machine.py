@@ -48,10 +48,11 @@ The LLM-facing steps are injected as plain callables so this module can be
 exercised with no model at all:
 
     classifier_fn(question, answer)             -> Mapping with
-                                                   error_type / confidence / reasoning
+                                                   error_type / reasoning
                                                    (error_type: correct, partial,
                                                    wording_error or logic_error;
-                                                   optional raw_output)
+                                                   optional raw_output,
+                                                   classifier_failed)
     hint_fn(question, answer, error_type)       -> hint string, or a Mapping with
                                                    hint / rejections (hint_pipeline's
                                                    dict); optional keywords
@@ -79,9 +80,10 @@ raising ``verify_fn`` fails open (treated as YES). Every answer event carries
 ``case_a_verified``: True / False on those two paths, None everywhere else.
 
 An optional ``fallback_classifier_fn`` (same shape; the UI wires Groq here,
-off by default) is tried when the classifier raises or returns a confidence
-below ``classifier_llm.CONFIDENCE_THRESHOLD``. Its result replaces the local
-one only if it clears that same threshold; the turn is then logged with
+off by default) is tried when the classifier raises or returns
+``classifier_failed`` (a client error, unparseable reply or unknown label).
+Its result replaces the local one only if it did not fail itself and names a
+known label; the turn is then logged with
 ``error_source="llm_groq_fallback"`` and ``cloud_fallback_used=True``.
 
 Every answer event, on every path, also carries ``hint_text`` (the hint
@@ -111,7 +113,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Optional, Sequence
 
 from . import classifier_behavioral
-from .classifier_llm import CONFIDENCE_THRESHOLD, MATCHED_NONE
+from .classifier_llm import MATCHED_NONE
 from .disengagement import flag_disengagement
 from .escalation import choose_escalation
 from .mastery import should_escalate, update_mastery
@@ -167,7 +169,6 @@ class Classification:
 
     error_type: ErrorType
     source: str  # "llm" | "llm_groq_fallback" | "behavioural" (key_terms verdicts skip Classification)
-    confidence: float = 1.0
     reasoning: str = ""
     cloud_fallback_used: bool = False
     matched_bank_id: MatchedBankId = None
@@ -235,7 +236,6 @@ def default_classifier(question: Question, answer: str) -> Mapping[str, Any]:
     """Conservative stand-in for the LLM classifier: always ``logic_error``."""
     return {
         "error_type": "logic_error",
-        "confidence": 0.0,
         "reasoning": "no LLM classifier configured",
     }
 
@@ -252,11 +252,9 @@ def _elapsed_ms(t0: float) -> int:
     return int(round((time.perf_counter() - t0) * 1000))
 
 
-def _confidence(raw: Mapping[str, Any]) -> float:
-    try:
-        return float(raw.get("confidence", 0.0))
-    except (TypeError, ValueError):
-        return 0.0
+def _classifier_failed(raw: Optional[Mapping[str, Any]]) -> bool:
+    """No result, or one of classify_llm's fail-closed fallbacks."""
+    return raw is None or bool(raw.get("classifier_failed"))
 
 
 def _hint_fn_accepts(fn: HintFn, keyword: str) -> bool:
@@ -448,7 +446,7 @@ class SocraticSession:
                 )
 
         if reason is not None:
-            cls = Classification("low_effort", "behavioural", 1.0, reason)
+            cls = Classification("low_effort", "behavioural", reasoning=reason)
             verdict, kind = "low_effort", "low_effort"
         else:
             # Layer 3: not every key term present (Case C), or Case A
@@ -467,7 +465,6 @@ class SocraticSession:
                     disengagement_tokens=disengagement_tokens,
                     kind=kind,
                     turn_error_source=cls.source,
-                    confidence=cls.confidence,
                     reasoning=cls.reasoning,
                     matched_bank_id=cls.matched_bank_id,
                     cloud_fallback_used=cls.cloud_fallback_used,
@@ -485,7 +482,6 @@ class SocraticSession:
             kind=kind,
             error_type=cls.error_type,
             error_source=cls.source,
-            confidence=cls.confidence,
             reasoning=cls.reasoning,
             key_terms_matched=matched,
             key_terms_missing=missing,
@@ -593,9 +589,9 @@ class SocraticSession:
         handed to ``classifier_fn`` because the prompt itself is built inside
         classifier_llm.py.
 
-        With a ``fallback_classifier_fn`` set, a local failure or a local
-        confidence below ``CONFIDENCE_THRESHOLD`` is retried there; the retry
-        wins only if it clears the same threshold, otherwise local stands.
+        With a ``fallback_classifier_fn`` set, a local failure (raised, or
+        ``classifier_failed``) is retried there; the retry wins only if it did
+        not fail too and names a known label, otherwise local stands.
         """
         t0 = time.perf_counter()
         prefixed = f"{NOISE_TOLERANCE_PREFIX} {answer}"
@@ -608,24 +604,23 @@ class SocraticSession:
             self._log("classifier_error", question, error=repr(e))
 
         cloud_attempted = cloud_used = False
-        if self.fallback_classifier_fn is not None and (raw is None or _confidence(raw) < CONFIDENCE_THRESHOLD):
+        if self.fallback_classifier_fn is not None and _classifier_failed(raw):
             cloud_attempted = True
             try:
                 cloud: Optional[Mapping[str, Any]] = self.fallback_classifier_fn(question, prefixed)
             except Exception as e:  # noqa: BLE001 - a failed fallback keeps the local result
                 cloud = None
                 self._log("classifier_error", question, error=repr(e), backend="cloud_fallback")
-            if (
-                cloud is not None
-                and str(cloud.get("error_type", "")) in LLM_VERDICTS
-                and _confidence(cloud) >= CONFIDENCE_THRESHOLD
-            ):
+            if not _classifier_failed(cloud) and str(cloud.get("error_type", "")) in LLM_VERDICTS:
                 raw, cloud_used = cloud, True
 
         if raw is None:
             verdict, kind = LLM_VERDICTS[LLM_FALLBACK_LABEL]
             cls = Classification(
-                LLM_FALLBACK_LABEL, "llm", 0.0, f"classifier failed: {local_error!r}", matched_bank_id=MATCHED_NONE
+                LLM_FALLBACK_LABEL,
+                "llm",
+                reasoning=f"classifier failed: {local_error!r}",
+                matched_bank_id=MATCHED_NONE,
             )
             return cls, verdict, kind
         elapsed_ms = (time.perf_counter() - t0) * 1000
@@ -636,7 +631,6 @@ class SocraticSession:
         cls = Classification(
             PARTIAL_ERROR_TYPE if label == "partial" else label,  # type: ignore[arg-type]
             CLOUD_FALLBACK_SOURCE if cloud_used else "llm",
-            _confidence(raw),
             str(raw.get("reasoning", "")),
             cloud_fallback_used=cloud_used,
             matched_bank_id=str(raw.get("matched_bank_id") or MATCHED_NONE),
@@ -644,6 +638,8 @@ class SocraticSession:
         extra: dict[str, Any] = {}
         if cloud_attempted:
             extra["cloud_fallback_attempted"] = True
+        if raw.get("classifier_failed"):
+            extra["classifier_failed"] = True
         if "dropped_examples" in raw:
             extra["dropped_examples"] = list(raw["dropped_examples"])
         if "raw_output" in raw:

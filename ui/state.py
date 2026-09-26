@@ -103,7 +103,7 @@ def make_client(backend_label: str) -> Any:
 
 
 def cloud_fallback_fn(enabled: bool, backend_label: str) -> Optional[Any]:
-    """Groq as the low-confidence classifier fallback, or None.
+    """Groq as the fallback when the local classifier fails, or None.
 
     Only behind the local backend, only when the sidebar opts in, and only
     with a key configured. Anything else means no fallback.
