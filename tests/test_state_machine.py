@@ -774,7 +774,7 @@ class LLMVerdictTests(unittest.TestCase):
         answer = self._events(s, "answer")[-1]
         self.assertEqual(
             list(answer),
-            ["ts", "event", "question_id", "tier", "answer", "attempt", "correct", "verdict", "kind",
+            ["ts", "event", "question_id", "tier", "answer", "correct", "verdict", "kind",
              "error_source", "key_terms_matched", "key_terms_missing", "disengagement_flag", "disengagement_tokens",
              "hint_text", "rejections", "attempt_number", "elapsed_ms", "matched_bank_id", "case_a_verified",
              "cloud_fallback_used", "backend"],
@@ -841,7 +841,8 @@ class LLMVerdictTests(unittest.TestCase):
         self.assertEqual(kinds, ["hint", "hint", "escalated"])
         answers = self._events(s, "answer")
         self.assertEqual([a["attempt_number"] for a in answers], [1, 2, 3])
-        self.assertEqual([a["attempt_number"] for a in answers], [a["attempt"] for a in answers])
+        # One attempt counter per answer event: the old duplicate "attempt" key is gone.
+        self.assertTrue(all("attempt" not in a for a in answers))
         # The escalated turn attaches a reveal, not a hint.
         self.assertEqual([bool(a["hint_text"]) for a in answers], [True, True, False])
 
