@@ -49,13 +49,15 @@
           "id": "ct_hypertrophy",
           "wrong_answer": "Wounds heal because damaged tissue cells absorb surrounding nutrients and swell in size until the empty space in the tissue is filled.",
           "error_type": "logic_error",
-          "explanation": "Recovery and growth rely on cell division from pre-existing cells (hyperplasia), not on individual cells enlarging (hypertrophy)."
+          "explanation": "Recovery and growth rely on cell division from pre-existing cells (hyperplasia), not on individual cells enlarging (hypertrophy).",
+          "diagnostic_goal": "Realize that healing requires new cells to be produced, not the cells already there getting larger. The student must distinguish growth in size from growth in number."
         },
         {
           "id": "ct_spontaneous_generation",
           "wrong_answer": "New cells form spontaneously from an acellular matrix or fluid at the wound site to rebuild the missing tissue.",
           "error_type": "logic_error",
-          "explanation": "All new cells arise from division of pre-existing living cells (Virchow's postulate). Extracellular fluid cannot coalesce into structured tissue."
+          "explanation": "All new cells arise from division of pre-existing living cells (Virchow's postulate). Extracellular fluid cannot coalesce into structured tissue.",
+          "diagnostic_goal": "Realize that new cells can only come from other living cells. The student must see that non-cellular material cannot become a living cell."
         }
       ],
       "answer_explanation": "Tissues grow and heal because pre-existing cells divide to produce new cells.",
