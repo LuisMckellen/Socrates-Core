@@ -168,13 +168,28 @@ def generate_hint(
     Otherwise, a ``matched_bank_id`` naming one of the question's own
     misconceptions switches to the targeted prompt (see ``build_hint_prompt``).
     """
+    return _request_hint(
+        question, answer, error_type, client, missing_terms=missing_terms, matched_bank_id=matched_bank_id
+    )[0]
+
+
+def _request_hint(
+    question: Any,
+    answer: str,
+    error_type: str,
+    client: Any,
+    *,
+    missing_terms: Optional[Sequence[str]] = None,
+    matched_bank_id: Optional[str] = None,
+) -> tuple[Optional[str], Optional[str]]:
+    """``(hint, client_error)``: ``generate_hint``'s result plus the client's error string, if any."""
     prompt = build_hint_prompt(
         question, answer, error_type, missing_terms=missing_terms, matched_bank_id=matched_bank_id
     )
     result = client.generate(prompt, max_tokens=MAX_TOKENS)
     if result.get("error") is not None:
-        return None
-    return str(result.get("text", "")).strip()
+        return None, str(result["error"])
+    return str(result.get("text", "")).strip(), None
 
 
 def _content_ngrams(text: str, n: int = PARAPHRASE_NGRAM) -> set[tuple[str, ...]]:
@@ -247,12 +262,12 @@ def hint_pipeline(
     missing = _clean_terms(missing_terms)
     rejections: list[str] = []
     for _ in range(2):
-        hint = generate_hint(
+        hint, client_error = _request_hint(
             question, answer, error_type, client, missing_terms=missing, matched_bank_id=matched_bank_id
         )
         if hint is None:
             # Counted, so a fallback caused by the client is visible in the log.
-            rejections.append("client error")
+            rejections.append(f"client error: {client_error}")
             break
         if not hint:
             break

@@ -114,7 +114,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(r["source"], "template")
         self.assertEqual(r["hint"], Q1.fallback_hint)
         # Counted, so a client-caused fallback shows up in the answer event's rejections.
-        self.assertEqual(r["rejections"], ["client error"])
+        self.assertEqual(r["rejections"], ["client error: mock failure"])
 
     def test_generator_does_not_include_correct_answer_in_prompt(self):
         mock = MockInferenceClient()

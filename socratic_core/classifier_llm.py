@@ -29,7 +29,7 @@ mislead when we are unsure. Every fallback fails *closed*: none can yield
 ``correct``, and each carries the model's ``raw_output`` for the log and
 ``classifier_failed=True`` (the state machine's Groq fallback trigger):
 
-    1. client reported an error          -> "client error"
+    1. client reported an error          -> "client error: <the client's error>"
     2. LABEL: line with an unknown label -> "unknown label ..."
     3. no label in the reply             -> "unparseable output"
     4. otherwise                         -> the parsed label
@@ -331,7 +331,7 @@ def _classify(result: Mapping[str, Any]) -> dict:
     raw_output = str(result.get("text", "") or "")
 
     if result.get("error") is not None:
-        return _failed("client error", raw_output)
+        return _failed(f"client error: {result['error']}", raw_output)
 
     parsed = parse_classifier_output(raw_output)
     if parsed is None:

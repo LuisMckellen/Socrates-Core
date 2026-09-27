@@ -82,7 +82,7 @@ class ClassifierLLMTests(unittest.TestCase):
         r = classify_llm("the organ", Q1, MockInferenceClient(fail_mode=True))
         self.assertEqual(r["error_type"], "logic_error")
         self.assertTrue(r["classifier_failed"])
-        self.assertEqual(r["reasoning"], "client error")
+        self.assertEqual(r["reasoning"], "client error: mock failure")
         self.assertIn("raw_output", r)
 
     def test_unparseable_output_falls_back_to_logic(self):

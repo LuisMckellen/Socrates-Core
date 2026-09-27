@@ -51,6 +51,9 @@ def main(argv: Optional[list[str]] = None, input_fn: Callable[[str], str] = inpu
         client = LocalCPUClient()
     else:
         client = InferenceClient()
+    setup_error = getattr(client, "setup_error", None)  # the mock has none
+    if setup_error:
+        print(f"{type(client).__name__} failed to load: {setup_error}", file=sys.stderr)
     try:
         session = SocraticSession(
             bank,
