@@ -1,9 +1,9 @@
 # Socratic Core
 
-An on-device Socratic tutor. It asks short questions, grades free-text
-answers, and meets a wrong answer with a guiding question rather than the
-answer. The model is Qwen3-4B-Instruct-2507, targeted at the Snapdragon X
-Elite NPU.
+A diagnostic layer for a Socratic tutor. It grades one free-text answer,
+names the misconception it matches, and responds with a guiding question
+rather than the answer. The model is Qwen3-4B-Instruct-2507, targeted at
+the Snapdragon X Elite NPU.
 
 ## Architecture
 
@@ -55,7 +55,13 @@ layer that decides wins (`socratic_core/state_machine.py:17-31`):
    is missing, Case C passes the answer to the LLM classifier
    (`socratic_core/state_machine.py:22-29`).
 3. **LLM classifier:** emits one of correct, partial, wording_error or
-   logic_error (`socratic_core/classifier_llm.py:100`).
+   logic_error (`socratic_core/classifier_llm.py:100`). Alongside the label,
+   the classifier names the bank misconception the answer most closely
+   matches, or `none`. The match does not affect the label; it drives the
+   targeted hint prompt and the session log
+   (`socratic_core/classifier_llm.py:68-70`,
+   `socratic_core/hint_pipeline.py:114-115`,
+   `socratic_core/state_machine.py:811`).
 
 There are two label spaces. The LLM labels map to verdicts: correct to
 correct, partial to partial, and wording_error or logic_error to wrong
@@ -230,5 +236,5 @@ Local CPU backend (RESULTS.md, Eval; `eval/run_eval.py:26,55`):
   shown.
 - **Prompts assume biology.** The classifier, verify and noise-tolerance
   texts say "biological" (`socratic_core/classifier_llm.py:121,357`,
-  `socratic_core/noise.py:18`), but the bank's genetic_algorithms cluster is
-  computer science.
+  `socratic_core/noise.py:18`), while the genetic_algorithms cluster covers
+  GA implementation.
