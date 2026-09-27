@@ -6,9 +6,9 @@ drives it with ``input()``. This is the only place the LLM-facing adapters
 live; the core modules stay injectable and model-free.
 
     python run_session.py                          # first question, mock client
-    python run_session.py --question-id bio_003    # one question
-    python run_session.py --question-id bio_003 --client local   # real model on CPU
-    python run_session.py --question-id bio_001 bio_002 --client npu
+    python run_session.py --question-id s_cell_theory_L1    # one question
+    python run_session.py --question-id s_cell_theory_L1 --client local   # real model on CPU
+    python run_session.py --question-id f_001 f_002 --client npu
 
 The session log is written by the state machine to ``sessions/`` (or
 ``SOCRATIC_SESSIONS_DIR``); nothing here writes it directly.

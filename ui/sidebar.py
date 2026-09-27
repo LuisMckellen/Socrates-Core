@@ -16,6 +16,12 @@ from . import state
 
 _NO_KEY = f"Set {API_KEY_NAME} (env var or .streamlit/secrets.toml) to enable Groq."
 _MOCK_WARNING = "Mock backend — canned answers, not real classification."
+# Sidebar caption per backend: names the runtime actually in use.
+_BACKEND_CAPTION = {
+    state.BACKEND_MOCK: "Mock backend (no inference)",
+    state.BACKEND_LOCAL: "Qwen3-4B · CPU (llama.cpp)",
+    state.BACKEND_GROQ: "Groq cloud",
+}
 
 
 def _sync_backend() -> None:
@@ -49,7 +55,7 @@ def render() -> None:
     bank = state.get_bank()
     with st.sidebar:
         st.title("Socratic Core")
-        st.caption("Qwen3-4B · Snapdragon X Elite NPU")
+        st.caption(_BACKEND_CAPTION[st.session_state.sc_backend])
         if st.session_state.sc_backend == state.BACKEND_MOCK:
             st.error(_MOCK_WARNING, icon="⚠️")
         st.divider()

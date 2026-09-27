@@ -46,9 +46,17 @@ the Local CPU backend (`LocalCPUClient`, `eval/run_eval.py:55`). No NPU run.
 Elapsed per answer on Local CPU (`elapsed_ms` in the results file): p50 7167 ms,
 p95 7388 ms.
 
+## Assets
+
+| Item | Value | Source |
+|---|---|---|
+| Question bank | 32 questions (16 filter, 16 socratic), 35 misconceptions, 8 clusters | `question_bank.json` |
+| CPU model | 2,497,281,120 bytes | `models/qwen3-4b-instruct-2507-q4_k_m.gguf` (not committed, `.gitignore:3`) |
+| NPU context binaries | 3,166,048,256 bytes, across `part1_of_4.bin` to `part4_of_4.bin` | Genie bundle, not committed; binaries listed at `evidence/npu_bundle_genie_config.json:48-53` |
+
 ## Traces
 
-`evidence/` holds the 18-run trace files that verify both changes, with their
-comparison results. Classifier prompt hash (sha256, `s_cell_theory_L1`):
+`evidence/` holds the trace files that verify both changes, with their
+comparison results (`evidence/README.md`). Classifier prompt hash (sha256, `s_cell_theory_L1`):
 `ff5d42ee50f1beafe1ec9bc9b8184fad2b06380ee16bba872a01265d210a04b8`
 (`tests/test_classifier_llm.py:373`).

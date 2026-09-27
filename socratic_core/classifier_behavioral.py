@@ -116,6 +116,3 @@ def explain(answer: str, question: Question) -> Optional[str]:
 def classify_behavioural(answer: str, question: Question) -> Optional[ErrorType]:
     """Return ``"low_effort"`` or ``None`` (meaning: continue to the next layer)."""
     return "low_effort" if explain(answer, question) else None
-
-
-classify = classify_behavioural
