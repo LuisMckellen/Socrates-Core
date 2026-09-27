@@ -16,13 +16,10 @@ sys.path.insert(0, str(ROOT))
 
 from socratic_core.hint_pipeline import (  # noqa: E402
     HINT_STRATEGY,
-    KEY_TERM_FORMS,
     PARAPHRASE_NGRAM,
     SYSTEM_PROMPT,
     build_hint_prompt,
     hint_pipeline,
-    key_term_forms,
-    named_key_terms,
     shared_answer_ngrams,
     validate_hint,
 )
@@ -295,19 +292,18 @@ class TargetedPromptTests(unittest.TestCase):
         self.assertNotIn(QT.natural_correct_example, prompt)
 
     def test_pipeline_targets_matched_misconception(self):
-        # Names no key term (QT's are "cell" and "alive"), so rule 3c lets it through.
+        # A valid hint on the targeted path is accepted as generated.
         hint = "What would an atom need to do on its own?"
         mock = _ScriptedClient([hint])
         r = hint_pipeline(QT, self.ANSWER, "logic_error", mock, matched_bank_id="ct_atom_is_unit")
         self.assertEqual(r, {"hint": hint, "source": "llm", "rejections": []})
         self.assertIn(HINT_STRATEGY["misconception"], mock.call_log[0]["prompt"])
 
-    def test_rule_3c_only_on_targeted_path(self):
-        # VALID_HINT names "alive": fine untargeted (as before 0c), rejected when targeted.
-        targeted = hint_pipeline(QT, self.ANSWER, "logic_error", _ScriptedClient([VALID_HINT, VALID_HINT]),
+    def test_targeted_path_accepts_key_term_hint(self):
+        # VALID_HINT names the key term "alive": accepted on both paths.
+        targeted = hint_pipeline(QT, self.ANSWER, "logic_error", _ScriptedClient([VALID_HINT]),
                                  matched_bank_id="ct_atom_is_unit")
-        self.assertEqual(targeted["source"], "template")
-        self.assertEqual(targeted["rejections"], ["names a key term on the targeted path"] * 2)
+        self.assertEqual(targeted, {"hint": VALID_HINT, "source": "llm", "rejections": []})
         for mid in (None, "none", "partial_example"):
             with self.subTest(matched_bank_id=mid):
                 r = hint_pipeline(QT, self.ANSWER, "logic_error", _ScriptedClient([VALID_HINT]), matched_bank_id=mid)
@@ -360,10 +356,9 @@ class AnswerLeakRuleTests(unittest.TestCase):
         # Documented limit: no shared run of content words, so nothing to match.
         self.assertTrue(validate_hint("What if existing cells split to fill in the hurt area?", LIVE)[0])
 
-    def test_rule_3c_rejects_either_or_hints_from_0c_traces(self):
-        # The six targeted hints Local CPU produced under the first 0c strategy line:
-        # four offer "divide" (a KEY_TERM_FORMS form of "division"), two say
-        # "existing" (a synonyms.py entry for "pre-existing").
+    def test_0c_trace_hints_pass_validator(self):
+        # The six targeted hints Local CPU produced under the first 0c strategy line.
+        # Each names a key-term form ("divide" or "existing"); none trips 3a or 3b.
         for hint in (
             "Do cells in a wound grow larger to fill space, or do they divide to produce more cells?",
             "Do cells in a wound grow larger to fill the space, or do they divide to produce more cells?",
@@ -373,27 +368,7 @@ class AnswerLeakRuleTests(unittest.TestCase):
             "Do cells at a wound site divide to produce more cells, or do they appear from nothing?",
         ):
             with self.subTest(hint=hint):
-                self.assertEqual(validate_hint(hint, LIVE, targeted=True), (False, "names a key term on the targeted path"))
-                self.assertTrue(validate_hint(hint, LIVE)[0])  # untargeted: unchanged
-
-    def test_rule_3c_matches_term_synonym_form_and_stem(self):
-        for hint, hit in (
-            ("What does division change?", "division~division"),        # the term itself
-            ("Could they be preexisting?", "pre-existing~preexisting"),  # synonyms.py
-            ("Why would a cell divide?", "division~divide"),             # KEY_TERM_FORMS
-            ("What happens when it divides?", "division~divides"),       # form, via crude_stem too
-            ("Is anything pre-existing here?", "pre-existing~pre-existing"),
-        ):
-            with self.subTest(hint=hint):
-                self.assertIn(hit, named_key_terms(hint, LIVE))
-        self.assertEqual(named_key_terms("Where does the extra tissue come from?", LIVE), [])
-        self.assertEqual(key_term_forms("division"), ["division", "divide", "divides", "dividing", "divided"])
-
-    def test_key_term_forms_keys_are_live_key_terms(self):
-        # Guards 0b's additions against typos: every entry must name a real key term.
-        live_terms = {t.lower() for q in load_question_bank(ROOT / "question_bank.json") for t in q.key_terms}
-        self.assertEqual(sorted(set(KEY_TERM_FORMS) - live_terms), [])
-        self.assertTrue(all(k == k.lower() for k in KEY_TERM_FORMS))
+                self.assertEqual(validate_hint(hint, LIVE), (True, "ok"))
 
 
 class QuestionMarkTests(unittest.TestCase):

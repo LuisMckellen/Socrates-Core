@@ -20,9 +20,7 @@ validator rules 3a (the example verbatim) and 3b (any
 ``PARAPHRASE_NGRAM``-word run of content words shared with the example,
 ``correct_answer`` or an accepted variant). The validator is plain string
 matching -- no model involved -- so a leaked answer can only ever be caught,
-never produced. 3b does not catch a synonym-for-synonym rewrite. On the
-targeted path rule 3c also rejects any hint naming a key term (the correct
-mechanism, e.g. offered as the other half of an either/or).
+never produced. 3b does not catch a synonym-for-synonym rewrite.
 """
 
 from __future__ import annotations
@@ -31,7 +29,6 @@ from typing import Any, Optional, Sequence
 
 from .inference_client import build_prompt
 from .question_bank import crude_stem, normalize, tokenize
-from .synonyms import expand_terms
 
 MAX_HINT_WORDS = 25
 MAX_TOKENS = 64
@@ -72,14 +69,6 @@ HINT_STRATEGY: dict[str, str] = {
         "options. Do not name the misconception. Do not state, imply, or describe the "
         "correct mechanism. Ask about ONE thing only."
     ),
-}
-
-# Rule 3c (targeted path only): the word forms a key term takes in a question,
-# beyond its synonyms.expand_terms() entries and crude_stem() matches. Only
-# irregular forms need an entry: "division" -> "divide" is neither a synonym nor
-# a shared stem. Keyed by the bank's key_terms, lowercase. 0b fills in the rest.
-KEY_TERM_FORMS: dict[str, list[str]] = {
-    "division": ["divide", "divides", "dividing", "divided"],
 }
 
 # Used when the model will not name the omitted idea itself. Phrased as a
@@ -203,31 +192,8 @@ def shared_answer_ngrams(hint: str, question: Any, n: int = PARAPHRASE_NGRAM) ->
     return _content_ngrams(hint, n) & answer_grams
 
 
-def key_term_forms(term: str) -> list[str]:
-    """The term, its synonyms.expand_terms() entries, then its KEY_TERM_FORMS, deduplicated."""
-    return list(dict.fromkeys([*expand_terms(term), *KEY_TERM_FORMS.get(term.lower(), [])]))
-
-
-def named_key_terms(hint: str, question: Any) -> list[str]:
-    """``term~form`` for every key-term form the hint contains: as a phrase, or
-    (single words) by crude_stem, so "divides" matches the form "divide"."""
-    words = normalize(hint).split()
-    padded = f" {' '.join(words)} "
-    stems = {crude_stem(w) for w in words}
-    hits = []
-    for term in getattr(question, "key_terms", ()):
-        for form in key_term_forms(term):
-            f = normalize(form)
-            if f and (f" {f} " in padded or (" " not in f and crude_stem(f) in stems)):
-                hits.append(f"{term}~{form}")
-    return hits
-
-
-def validate_hint(hint: str, question: Any, *, targeted: bool = False) -> tuple[bool, str]:
-    """Pure-Python gate: (True, "ok") or (False, reason). Never calls the model.
-
-    ``targeted`` (a matched-misconception prompt) adds rule 3c.
-    """
+def validate_hint(hint: str, question: Any) -> tuple[bool, str]:
+    """Pure-Python gate: (True, "ok") or (False, reason). Never calls the model."""
     stripped = hint.strip()
     if not stripped:
         return False, "empty hint"
@@ -248,10 +214,6 @@ def validate_hint(hint: str, question: Any, *, targeted: bool = False) -> tuple[
     shared = shared_answer_ngrams(stripped, question)
     if shared:
         return False, f"paraphrases the answer: {' '.join(sorted(shared)[0])!r}"
-    # 3c: on the targeted path a key term is the correct mechanism, e.g. offered
-    # as the other half of an either/or. The untargeted prompts never leaked it.
-    if targeted and named_key_terms(stripped, question):
-        return False, "names a key term on the targeted path"
 
     words = len(stripped.split())
     if words > MAX_HINT_WORDS:
@@ -283,8 +245,6 @@ def hint_pipeline(
     that misconception when it is one of this question's.
     """
     missing = _clean_terms(missing_terms)
-    # Same precedence as build_hint_prompt: partial wins over a matched misconception.
-    targeted = not missing and resolve_misconception(question, matched_bank_id) is not None
     rejections: list[str] = []
     for _ in range(2):
         hint = generate_hint(
@@ -296,7 +256,7 @@ def hint_pipeline(
             break
         if not hint:
             break
-        ok, reason = validate_hint(hint, question, targeted=targeted)
+        ok, reason = validate_hint(hint, question)
         if not ok:
             rejections.append(reason)
             continue

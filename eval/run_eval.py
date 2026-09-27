@@ -88,8 +88,20 @@ def main() -> int:
     out_path.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in results), encoding="utf-8")
 
     verdict_ok = sum(r["verdict"] == r["expected_verdict"] for r in results)
-    scored = [r for r in results if r.get("expected_matched") is not None]
+    # expected_matched "" means the row expects no example match. The session logs
+    # no match as "none" (classifier ran) or None (classifier never invoked).
+    scored = [r for r in results if r.get("expected_matched")]
     matched_ok = sum(r["matched_bank_id"] == r["expected_matched"] for r in scored)
+    abstain_rows = [r for r in results if not r.get("expected_matched")]
+    abstain_ok = sum(r["matched_bank_id"] in (None, "none") for r in abstain_rows)
+    false_matches = [r for r in abstain_rows if r["matched_bank_id"] not in (None, "none")]
+    # Derived view, same rows: a correct answer matched to its natural_correct example
+    # is not counted. Kept: matched_bank_id is not "natural_correct", OR expected_verdict
+    # is not "correct".
+    false_matches_excl = [
+        r for r in false_matches
+        if r["matched_bank_id"] != "natural_correct" or r["expected_verdict"] != "correct"
+    ]
     confusion = Counter((r["verdict"], r["expected_verdict"]) for r in results)
     labels = sorted({v for pair in confusion for v in pair})
     times = [r["elapsed_ms"] for r in results]
@@ -97,7 +109,10 @@ def main() -> int:
     print()
     print(f"total inputs        {len(results)}")
     print(f"verdict accuracy    {verdict_ok}/{len(results)}")
-    print(f"matched accuracy    {matched_ok}/{len(scored)}  (rows with expected_matched)")
+    print(f"matched accuracy    {matched_ok}/{len(scored)}  (rows with non-empty expected_matched)")
+    print(f"abstain success     {abstain_ok}/{len(abstain_rows)}  (rows with empty expected_matched; no match logged)")
+    print(f"false matches       {len(false_matches)}/{len(abstain_rows)}")
+    print(f"false matches (excl. natural_correct on correct rows)  {len(false_matches_excl)}/{len(abstain_rows)}")
     print("confusion (rows = predicted, cols = expected)")
     print("  " + " " * 12 + "".join(f"{lab:>12}" for lab in labels))
     for pred in labels:
