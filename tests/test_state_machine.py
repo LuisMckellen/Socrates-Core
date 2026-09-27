@@ -314,7 +314,7 @@ class StateMachineTierTests(unittest.TestCase):
         self.assertEqual(seen, [("logic_error", None)])
 
     def test_partial_counts_toward_reveal(self):
-        # CORRECTIONS.md #9: a third partial attempt reveals, like any other.
+        # CORRECTIONS.md, "Attempt limit": a third partial attempt reveals, like any other.
         s = SocraticSession(self.full, question_ids=["s_001"], classifier_fn=self._partial_llm, hint_fn=lambda q, a, e: "hint?", sessions_dir=self.sessions_dir)
         kinds = [s.submit_answer("cells are the smallest unit").kind for _ in range(3)]
         self.assertEqual(kinds, ["hint", "hint", "escalated"])

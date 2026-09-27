@@ -31,7 +31,7 @@ from socratic_core.state_machine import SocraticSession
 
 BACKEND_MOCK = "Mock (instant)"
 BACKEND_LOCAL = "Local CPU (~7s)"
-# Off-device: demo latency only, never the default (CORRECTIONS.md #8).
+# Off-device: demo latency only, never the default (CORRECTIONS.md, "Groq").
 BACKEND_GROQ = "Groq cloud (off-device)"
 BACKEND_LABELS: tuple[str, ...] = (BACKEND_MOCK, BACKEND_LOCAL, BACKEND_GROQ)
 

@@ -494,7 +494,7 @@ class SocraticSession:
         elif verdict == "partial":
             update_mastery(st.mastery, question.cluster, question.tier, "partial")
 
-        # Partial answers count toward max_attempts like any other (CORRECTIONS.md #9).
+        # Partial answers count toward max_attempts like any other (CORRECTIONS.md, "Attempt limit").
         if st.attempt_count >= st.max_attempts:
             reveal = self._reveal_text(question)
             st.stuck_question_ids.append(question.id)

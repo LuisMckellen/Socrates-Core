@@ -7,7 +7,7 @@ A fourth ``generate()`` backend beside ``InferenceClient`` (NPU),
 ``LocalCPUClient`` (llama.cpp) and ``MockInferenceClient``. Demo-latency
 only: it routes student answers off-device, so it is never the default and
 is reached only by an explicit sidebar choice (as the backend, or as the
-classifier failure fallback). See CORRECTIONS.md #8.
+classifier failure fallback). See CORRECTIONS.md, "Groq".
 
 Prompts arrive already ChatML-formatted by ``inference_client.build_prompt``.
 Groq takes chat messages, so ``split_chatml`` turns the string back into
