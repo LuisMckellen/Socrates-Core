@@ -1,5 +1,5 @@
 """
-hint_pipeline.py — generate a Socratic hint on the NPU, validate it in pure Python.
+hint_pipeline.py — generate a Socratic hint with the model, validate it in pure Python.
 
 Role in the architecture
 ------------------------

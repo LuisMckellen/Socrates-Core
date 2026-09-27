@@ -76,12 +76,9 @@ count toward max_attempts like any other answer and can trigger the reveal
 
 ## 10
 
-Removed rule 3c from the hint validator. On the targeted path it rejected
-any hint naming a form of a key term. It rejected 6/6 real hints on Trace 2
-and forced the bank fallback hint on every rep
-(`evidence/trace_rule3c_original_trace2.json`). After removal, Trace 2 gets
-model-generated hints. The change was checked across 18 trace runs and
-changed no verdict, error_source or matched_bank_id (`evidence/README.md`).
+Rule 3c removed. It rejected 6/6 real hints on Trace 2, forcing bank
+fallback. Verified verdict-neutral across 18 post-fix trace runs.
+
 The only remaining guard against hints that offer the correct mechanism as
 one side of an either/or is the prompt instruction "Do not offer
 alternatives. Do not present two options"

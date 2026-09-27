@@ -5,7 +5,7 @@ No model, no NPU, no network.
 
 run_session.py always loads the live question_bank.json (it has no bank
 injection point), so these tests target real ids from the current
-16-entry bank rather than a synthetic fixture.
+32-entry bank rather than a synthetic fixture.
 """
 
 from __future__ import annotations

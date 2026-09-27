@@ -14,8 +14,8 @@ Misconceptions are data for the LLM classifier's few-shot prompt and the
 hint generator; nothing matches a student answer against them here.
 
 Nothing here touches the model. The bank is the *only* place the correct
-answer lives; the LLM never sees it except inside the hint validator
-(pure Python) which checks that a hint does not leak it.
+answer is stored; the LLM classifier and Case A verify prompts see it, the
+hint generator never does, and the pure-Python hint validator checks leaks.
 
 Path resolution (no hardcoded paths): pass ``path`` explicitly, or set the
 ``SOCRATIC_QUESTION_BANK`` environment variable, or fall back to

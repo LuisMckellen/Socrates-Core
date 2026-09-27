@@ -5,7 +5,7 @@ No model, no NPU, no network.
 
 Q1/Q2 are synthetic Socratic fixtures (direct ``Question``/``Misconception``
 construction, bypassing bank-JSON validation) rather than ids from the live
-16-entry ``question_bank.json`` -- the real bank's filter/socratic split and
+32-entry ``question_bank.json`` -- the real bank's filter/socratic split and
 mastery-escalation flow don't match what these tests exercise (a simple
 two-question walk with no filters). See test_state_machine.py for tests
 against the live bank's tier/escalation behaviour.

@@ -3,7 +3,7 @@ classifier_behavioral.py — layer 1 of error classification (pure Python, 0 ms)
 
 Role in the architecture
 ------------------------
-Runs *before* the bank misconception lookup and before any NPU call. It only
+Runs *before* the key_terms check and before any model call. It only
 ever produces one verdict, ``low_effort``, for answers that are obviously not
 a real attempt. Everything else returns ``None``, which the state machine
 reads as "continue to the next layer".

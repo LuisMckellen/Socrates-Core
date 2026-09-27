@@ -155,3 +155,9 @@ CPU fallback latency per answer: p50 7167 ms, p95 7388 ms (BASELINE.md).
 - **Either/or leaks:** after rule 3c was removed, only a prompt instruction
   guards against a hint that offers the correct mechanism as one side of an
   either/or (`socratic_core/hint_pipeline.py:68-69`, CORRECTIONS.md #10).
+- **NPU client is untested:** `socratic_core/inference_client.py` has no test
+  coverage. `load_bundle`, `find_genie_binary`, `_parse_output` and
+  `_parse_profile` are never exercised.
+- **Eval default repo path is WSL-only:** `eval/run_eval.py:3,25` default
+  `--repo` to `/mnt/e/qualcomm/socrates_core`. On Windows, pass `--repo`
+  explicitly.

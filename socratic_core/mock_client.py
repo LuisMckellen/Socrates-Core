@@ -3,7 +3,7 @@ mock_client.py — offline stand-in for ``InferenceClient``.
 
 Role in the architecture
 ------------------------
-Lets ``classifier_llm`` and (later) ``hint_pipeline`` be exercised on an
+Lets ``classifier_llm`` and ``hint_pipeline`` be exercised on an
 x86-64 dev machine where the Genie runtime cannot run. Returns the same
 five-key dict as ``InferenceClient.generate()`` so callers cannot tell the
 difference, and records every call so tests can assert on what was sent.

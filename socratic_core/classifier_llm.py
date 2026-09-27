@@ -1,5 +1,5 @@
 """
-classifier_llm.py — layer 4 of error classification (the only NPU-backed one).
+classifier_llm.py — the LLM layer of error classification.
 
 Role in the architecture
 ------------------------

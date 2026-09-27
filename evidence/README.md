@@ -1,61 +1,34 @@
 # Evidence
 
-Trace runs from 2026-09-27 that verify two changes: removing rule 3c from the
-hint validator, and removing the duplicate `attempt` key from answer events.
-Every run uses question `s_cell_theory_L1` on the Local CPU backend (GGUF
-Q4_K_M via llama-cpp-python, the fallback runtime, not the NPU) with the same
-wiring as `ui/state.py` `build_session`. There are six inputs (Trace 1–3,
-Para A–C) and 3 reps each, so 18 runs per file. The exception is
-`trace_rule3c_original_trace2.json`, which holds Trace 2 only (3 runs). The
-classifier prompt hash
-(sha256, `s_cell_theory_L1`) was
-`ff5d42ee50f1beafe1ec9bc9b8184fad2b06380ee16bba872a01265d210a04b8` for both
-runs, the value asserted at `tests/test_classifier_llm.py:373`.
+The NPU Genie bundle (context binaries, ~3.16 GB total, BASELINE.md:55) is
+not committed. It is produced by Qualcomm AI Hub for the Snapdragon X Elite
+target and downloaded to a local folder next to the repo
+(`socratic_core/inference_client.py:73-76`, override with
+`SOCRATIC_MODEL_DIR`). The two JSON files in this folder are copied byte for
+byte from that bundle, so the build can be cited without shipping the
+binaries. No NPU run of the pipeline has been recorded (BASELINE.md).
 
-## trace_harness.py
+## npu_bundle_metadata.json
 
-The script that produced the files below. It uses the same six inputs and the
-same wiring as `scratch_0a/trace_final.py`, and records `error_type` as well.
-It writes only to the output path it is given. Run it from the repo root in
-the WSL `socrates` environment (`~/socvenv`, llama_cpp 0.3.35):
-`python evidence/trace_harness.py . 3 <out.json>`. This copy adds two things
-to the script that produced `trace_rule3c_postfix.json`: the output-path
-argument and the `answer_keys` field. That earlier script was lost when WSL
-restarted and cleared `/tmp`. Its logic was otherwise the same.
+The bundle's AI Hub metadata.
 
-## trace_rule3c_original_trace2.json
+- Model: Qwen3-4B-Instruct-2507 (lines 2-3), Genie runtime (line 4),
+  w4a16 precision (line 5).
+- Toolchain: QAIRT 2.45.0 (line 7).
+- Target: Snapdragon X Elite, HTP v73, reference device Snapdragon X Elite
+  CRD (lines 2144-2151).
+- Chat template (from line 2122). `inference_client.load_bundle` reads it
+  from here at runtime; `DEFAULT_CHAT_TEMPLATE`
+  (`socratic_core/inference_client.py:94-102`) is the fallback copy.
 
-3 records: Trace 2 before rule 3c was removed. This is a byte-for-byte copy of
-`scratch_0a/trace_final_Trace_2.json`, produced by `scratch_0a/trace_final.py`.
-On all 3 reps, rule 3c rejected both generated hints ("names a key term on the
-targeted path"), so the hint source was `template`, the bank fallback. That is
-6 of 6 hints rejected.
+## npu_bundle_genie_config.json
 
-## trace_rule3c_postfix.json
+The Genie runtime config that `genie-t2t-run -c` loads.
 
-18 records, run after rule 3c was removed. Produced by the earlier version of
-the harness (`python /tmp/rule3c/trace_rerun.py . 3` under `socrates`); this is
-a byte-for-byte copy of its output. Compared with the pre-removal run
-(`scratch_0a/trace_final.json`, 18 records), Trace 2's hint source changed from
-`template` to `llm` on all 3 reps. Verdict, error_source and matched_bank_id
-stayed the same on all 18 runs, and hint source stayed the same on every
-other input. The pre-removal file does not record `error_type`, so that field
-has no earlier value to compare against.
-
-## trace_attemptfix.json
-
-18 records, run after the duplicate `attempt` key was removed. Produced by
-`python evidence/trace_harness.py . 3 <out.json>` under `socrates`. Compared
-with `trace_rule3c_postfix.json`, verdict, error_type, error_source,
-matched_bank_id and hint source are identical on all 18 runs, and so is the
-final hint text. Each record also carries `answer_keys`: on every run the
-answer event has `attempt_number` and no `attempt`.
-
-## npu_bundle_metadata.json, npu_bundle_genie_config.json
-
-The NPU Genie bundle itself (context binaries, ~3.16 GB total,
-BASELINE.md:55) is not committed. It is produced by Qualcomm AI Hub for the
-Snapdragon X Elite target (w4a16, QnnHtp) and downloaded to a local folder
-next to the repo (`socratic_core/inference_client.py:73-76`). The two JSON
-files in this folder are the bundle's metadata and Genie runtime config,
-copied byte for byte for citation.
+- Context size 4096 (line 7).
+- Sampler: seed 42, temperature 0.8 (lines 14-15). The CPU and Groq
+  backends run at 0.2, so NPU output is not directly comparable to them.
+- Backend QnnHtp (line 28) with `use-mmap` enabled (line 31).
+- The four context binaries, `part1_of_4.bin` to `part4_of_4.bin`
+  (lines 48-53). `inference_client.load_bundle` reads this list rather than
+  assuming it.

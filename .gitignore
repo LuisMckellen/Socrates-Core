@@ -3,7 +3,7 @@
 *.gguf
 *.onnx
 *.dlc
-qwen3_4b_instruct_2507-genie-w4a16_*/
+qwen3_4b_instruct_2507-genie-w4a16-qualcomm_snapdragon_x_elite*
 
 
 api key
@@ -35,5 +35,3 @@ venv/
 .DS_Store
 Thumbs.db
 .streamlit/secrets.toml
-*.key
-api key
