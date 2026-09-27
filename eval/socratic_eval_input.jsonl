@@ -1,0 +1,60 @@
+{"answer": "They come from existing cells when they split into two.", "expected_verdict": "correct", "expected_matched": "", "note": ""}
+{"answer": "Cells just appear when the tissue gets damaged and needs repair.", "expected_verdict": "wrong", "expected_matched": "ct_spontaneous_generation", "note": ""}
+{"answer": "The body generates them from protein building blocks in the bloodstream.", "expected_verdict": "wrong", "expected_matched": "", "note": ""}
+{"answer": "Honest I have no idea maybe the nucleus makes them.", "expected_verdict": "low_effort", "expected_matched": "", "note": ""}
+{"answer": "Cells multiply by dividing themselves, which heals cuts and helps tissues grow larger.", "expected_verdict": "correct", "expected_matched": "", "note": ""}
+{"answer": "From non-living organic matter that gathers together in the body.", "expected_verdict": "wrong", "expected_matched": "ct_spontaneous_generation", "note": ""}
+{"answer": "They come from other cells splitting, so when you get cut they copy themselves to repair tissue.", "expected_verdict": "correct", "expected_matched": "", "note": ""}
+{"answer": "Tissues grow because the cells take in water and stretch out.", "expected_verdict": "wrong", "expected_matched": "ct_hypertrophy", "note": ""}
+{"answer": "New cells are created by stem cells in the bone marrow whenever you get hurt.", "expected_verdict": "wrong", "expected_matched": "", "note": ""}
+{"answer": "Like when you cut your arm, skin cells just regenerate from collagen.", "expected_verdict": "wrong", "expected_matched": "ct_spontaneous_generation", "note": ""}
+{"answer": "I think they come from protein molecules clumping together in the plasma.", "expected_verdict": "wrong", "expected_matched": "ct_spontaneous_generation", "note": ""}
+{"answer": "Existing cells replicate and split, so tissue grows by accumulating more total cells.", "expected_verdict": "correct", "expected_matched": "", "note": ""}
+{"answer": "Not really sure about this one.", "expected_verdict": "low_effort", "expected_matched": "", "note": ""}
+{"answer": "The body forms them out of raw nutrients in the blood when healing.", "expected_verdict": "wrong", "expected_matched": "", "note": ""}
+{"answer": "They originate from existing cells that divide, making tissues larger as cell count increases.", "expected_verdict": "correct", "expected_matched": "", "note": ""}
+{"answer": "Cells form from chemical reactions inside the cytoplasm when needed.", "expected_verdict": "wrong", "expected_matched": "ct_spontaneous_generation", "note": ""}
+{"answer": "They come from older cells splitting into fresh ones to replace dead skin.", "expected_verdict": "correct", "expected_matched": "", "note": ""}
+{"answer": "Tissue grows because cells expand in size rather than multiplying.", "expected_verdict": "wrong", "expected_matched": "ct_hypertrophy", "note": ""}
+{"answer": "From living cells that duplicate and split to fill in wounds.", "expected_verdict": "correct", "expected_matched": "", "note": ""}
+{"answer": "DNA creates new cells directly out of cellular fluid.", "expected_verdict": "wrong", "expected_matched": "ct_spontaneous_generation", "note": ""}
+{"answer": "Idk, maybe from mitochondria producing them?", "expected_verdict": "low_effort", "expected_matched": "", "note": ""}
+{"answer": "They start from existing cells dividing, so wounds heal as new cells multiply and patch the area.", "expected_verdict": "correct", "expected_matched": "", "note": ""}
+{"answer": "From the cell membrane expanding and breaking off pieces.", "expected_verdict": "wrong", "expected_matched": "ct_spontaneous_generation", "note": ""}
+{"answer": "The body creates them from proteins.", "expected_verdict": "wrong", "expected_matched": "", "note": ""}
+{"answer": "They come from blood cells transforming into skin cells.", "expected_verdict": "wrong", "expected_matched": "", "note": ""}
+{"answer": "Wounds heal because damaged cells repair themselves, not from making new ones.", "expected_verdict": "wrong", "expected_matched": "", "note": ""}
+{"answer": "I forgot Virchow's name but I guess cells come from molecules in the body.", "expected_verdict": "wrong", "expected_matched": "", "note": ""}
+{"answer": "From older cells multiplying through cell splitting to rebuild damaged area.", "expected_verdict": "correct", "expected_matched": "", "note": ""}
+{"answer": "Cells condense from biological liquids when injured.", "expected_verdict": "wrong", "expected_matched": "ct_spontaneous_generation", "note": ""}
+{"answer": "Like the body just manufactures new ones when you get a cut.", "expected_verdict": "wrong", "expected_matched": "", "note": ""}
+{"answer": "From older cells copying their DNA and splitting into two.", "expected_verdict": "correct", "expected_matched": "", "note": ""}
+{"answer": "They come from dead cells being recycled into new cell structures.", "expected_verdict": "wrong", "expected_matched": "ct_spontaneous_generation", "note": ""}
+{"answer": "Tissues get bigger because cells gather extra water and inflate.", "expected_verdict": "wrong", "expected_matched": "ct_hypertrophy", "note": ""}
+{"answer": "Skip this question, ran out of time.", "expected_verdict": "low_effort", "expected_matched": "", "note": ""}
+{"answer": "They come from existing cells splitting, so cuts heal when surrounding cells make copies of themselves.", "expected_verdict": "correct", "expected_matched": "", "note": ""}
+{"answer": "From special growth hormones in the blood that solidify into cells.", "expected_verdict": "wrong", "expected_matched": "", "note": ""}
+{"answer": "They form from raw amino acids floating around the wound.", "expected_verdict": "wrong", "expected_matched": "ct_spontaneous_generation", "note": ""}
+{"answer": "The nucleus sprouts a new cell like a seed.", "expected_verdict": "wrong", "expected_matched": "ct_spontaneous_generation", "note": ""}
+{"answer": "From older cells duplicating and splitting, which helps skin heal by filling the cut.", "expected_verdict": "correct", "expected_matched": "", "note": ""}
+{"answer": "I think Virchow said they come from spontaneous generation or something.", "expected_verdict": "wrong", "expected_matched": "ct_spontaneous_generation", "note": ""}
+{"answer": "From living cells splitting, which expands tissue size by adding extra cells.", "expected_verdict": "correct", "expected_matched": "", "note": ""}
+{"answer": "Honestly not sure, maybe from the lymphatic system?", "expected_verdict": "low_effort", "expected_matched": "", "note": ""}
+{"answer": "They come from existing cells that split in two, helping injuries heal by producing more cells.", "expected_verdict": "correct", "expected_matched": "", "note": ""}
+{"answer": "From protein layers forming new cell walls.", "expected_verdict": "wrong", "expected_matched": "ct_spontaneous_generation", "note": ""}
+{"answer": "Older cells replicate and divide, which causes tissues to enlarge and heals wounds.", "expected_verdict": "correct", "expected_matched": "", "note": ""}
+{"answer": "Photosynthesis happens in the chloroplast and makes glucose", "expected_verdict": "wrong", "expected_matched": "", "note": ""}
+{"answer": "Mitochondria is the powerhouse of the cell", "expected_verdict": "wrong", "expected_matched": "", "note": ""}
+{"answer": "DNA has four bases: A, T, G, and C", "expected_verdict": "wrong", "expected_matched": "", "note": ""}
+{"answer": "Enzymes lower the activation energy of reactions", "expected_verdict": "wrong", "expected_matched": "", "note": ""}
+{"answer": "Cells divide because they don't divide", "expected_verdict": "wrong", "expected_matched": "", "note": ""}
+{"answer": "New cells come from old cells that don't come from old cells", "expected_verdict": "wrong", "expected_matched": "", "note": ""}
+{"answer": "The cell makes new cells by not making new cells", "expected_verdict": "wrong", "expected_matched": "", "note": ""}
+{"answer": "Cells split into two without splitting", "expected_verdict": "wrong", "expected_matched": "", "note": ""}
+{"answer": "Cells come from other cells i think", "expected_verdict": "partial", "expected_matched": "partial_example", "note": ""}
+{"answer": "They're made somehow from the cells around them, not sure how", "expected_verdict": "partial", "expected_matched": "partial_example", "note": ""}
+{"answer": "From the existing cells but i don't know the mechanism", "expected_verdict": "partial", "expected_matched": "partial_example", "note": ""}
+{"answer": "Old cells do something to make new ones", "expected_verdict": "partial", "expected_matched": "partial_example", "note": ""}
+{"answer": "Existing cells are involved somehow", "expected_verdict": "partial", "expected_matched": "partial_example", "note": ""}
+{"answer": "Idk", "expected_verdict": "low_effort", "expected_matched": "", "note": ""}
+{"answer": "I didn't study this", "expected_verdict": "low_effort", "expected_matched": "", "note": ""}
