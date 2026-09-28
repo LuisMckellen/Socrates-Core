@@ -196,9 +196,11 @@ Local CPU backend (RESULTS.md, Eval; `eval/run_eval.py:26,55`):
   not grading (`socratic_core/mock_client.py`).
 - **The eval is narrow.** 60 synthetic rows, one question, Local CPU only
   (RESULTS.md, Eval).
-- **The NPU path is untested and unmeasured.** No NPU run of the pipeline has
-  been recorded. `socratic_core/inference_client.py` has no test coverage:
-  `load_bundle`, `find_genie_binary`, `_parse_output` and `_parse_profile`
+- **The NPU path is untested and unmeasured.** The one recorded NPU session
+  (`evidence/npu_run.json`) never reached the model: every classifier and hint
+  call returned a client error (`evidence/npu_run.json:24,30,55-57`), so the
+  session ran on bank fallback hints. `socratic_core/inference_client.py` has
+  no test coverage: `load_bundle`, `find_genie_binary`, `_parse_output` and `_parse_profile`
   are never exercised.
 - **NPU reload per call:** each NPU `generate()` call starts a new
   `genie-t2t-run` process (`socratic_core/inference_client.py:301,309,340-346`)
