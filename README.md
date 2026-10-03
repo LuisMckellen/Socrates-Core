@@ -22,8 +22,13 @@ the Snapdragon X Elite NPU.
     (`socratic_core/cloud_client.py`).
   - **Mock:** canned replies for development and tests
     (`socratic_core/mock_client.py`).
-- **Routing is layered.** Rules that cost nothing run first; the model runs
-  only when they cannot decide (`socratic_core/state_machine.py:17-31`).
+- **Routing is layered.** Behavioural rules run first and catch
+  low-effort answers with no model call. Every other answer reaches the
+  model: if every key term is present (allowing synonyms), Case A asks it
+  for a one-word YES/NO verification; if any key term is missing, Case C
+  runs the full classifier. On the eval, the model decided 54 of 60 rows
+  (`socratic_core/state_machine.py:17-31`; `error_source` in
+  `eval/socratic_eval_results.jsonl`).
 
 ## Session flow
 
